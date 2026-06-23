@@ -225,6 +225,10 @@
                             <option value="{{CorreoEmpleado}}">CorreoEmpleado</option>
                             <option value="{{salario}}">Salario</option>
                             <option value="{{salario_str}}">SalarioLetras</option>
+                            @foreach (var ph in _placeholders)
+                            {
+                                <option value="{{@ph.PlaceholderTexto}}">@ph.Texto</option>
+                            }
                         </optgroup>
                         <optgroup label="Empresa">
                             <option value="{{NombreEmpresa}}">NombreEmpresa</option>
@@ -249,15 +253,6 @@
                             <option value="{{FechaCorta}}">FechaCorta</option>
                             <option value="{{FechaISO}}">FechaISO</option>
                         </optgroup>
-                        @if (_placeholders.Any())
-                        {
-                            <optgroup label="Personalizados">
-                                @foreach (var ph in _placeholders)
-                                {
-                                    <option value="{{@ph.PlaceholderTexto}}">@ph.Texto</option>
-                                }
-                            </optgroup>
-                        }
                     </select>
                     <span class="icon" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#64748b;font-size:19px;pointer-events:none;">expand_more</span>
                 </div>
