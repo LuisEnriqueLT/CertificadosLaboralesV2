@@ -125,7 +125,9 @@
                     <div style="display:flex;flex-direction:column;gap:8px;">
                         <div style="display:flex;align-items:center;gap:10px;">
                             <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">Opacidad: @((_opacidadMarca * 100).ToString("F0"))%</label>
-                            <input type="range" @bind="_opacidadMarca" @bind:event="oninput"
+                            <input type="range"
+                                   value="@_opacidadMarca.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
+                                   @oninput='e => _opacidadMarca = double.Parse(e.Value?.ToString() ?? "0.15", System.Globalization.CultureInfo.InvariantCulture)'
                                    min="0.01" max="0.5" step="0.01"
                                    style="flex:1;accent-color:#F97316;" />
                         </div>

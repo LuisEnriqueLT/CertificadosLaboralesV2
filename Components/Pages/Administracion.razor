@@ -479,12 +479,14 @@
 
     // ── Empresa CRUD ──────────────────────────────────────────────────
     private Empresa _empresaForm = new();
+    private string _empresaLogoPreview = "";
+
     private async Task OpenAddModal()
     {
         switch (_activeTab)
         {
             case "Empresa": OpenAddEmpresa(); break;
-            case "Empleado": OpenAddEmpleado(); break;
+            case "Empleado": await OpenAddEmpleado(); break;
             case "Usuario": OpenAddUsuario(); break;
             case "Representante legal": OpenAddFirmante(); break;
             case "Placeholder": await OpenAddPlaceholder(); break;
@@ -494,38 +496,27 @@
     private void OpenAddEmpresa()
     {
         _empresaForm = new();
+        _empresaLogoPreview = "";
         _modalTitle = "Agregar empresa";
         _modalSaveAction = SaveEmpresa;
-        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre de la empresa</label>
-                <input @bind="_empresaForm.Nombre" placeholder="Razón social" style="@InputStyle" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">NIT</label>
-                <input @bind="_empresaForm.Nit" placeholder="900000000-0" style="@InputStyle" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Teléfono</label>
-                <input type="number" @bind="_empresaForm.Telefono" placeholder="0000000000" style="@InputStyle" />
-            </div>
-            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Domicilio</label>
-                <input @bind="_empresaForm.Domicilio" placeholder="Dirección y ciudad" style="@InputStyle" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
-                <input @bind="_empresaForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
-            </div>
-        </div>;
+        SetEmpresaModalContent();
         _showModal = true;
     }
 
     private void OpenEditEmpresa(Empresa e)
     {
-        _empresaForm = new() { Id = e.Id, Nombre = e.Nombre, Nit = e.Nit, Domicilio = e.Domicilio, Telefono = e.Telefono, Email = e.Email, RepresentanteLegalId = e.RepresentanteLegalId };
+        _empresaForm = new() { Id = e.Id, Nombre = e.Nombre, Nit = e.Nit, Domicilio = e.Domicilio, Telefono = e.Telefono, Email = e.Email, RepresentanteLegalId = e.RepresentanteLegalId, Logo = e.Logo };
+        _empresaLogoPreview = e.Logo != null && e.Logo.Length > 0
+            ? $"data:{GetImageMimeType(e.Logo)};base64,{Convert.ToBase64String(e.Logo)}"
+            : "";
         _modalTitle = "Editar empresa";
         _modalSaveAction = SaveEmpresa;
+        SetEmpresaModalContent();
+        _showModal = true;
+    }
+
+    private void SetEmpresaModalContent()
+    {
         _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
             <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre de la empresa</label>
@@ -547,8 +538,34 @@
                 <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
                 <input @bind="_empresaForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
             </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Logo de la empresa</label>
+                <label style="border:1.5px dashed #cbd5e1;border-radius:6px;padding:20px 16px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;background:#fafbfd;"
+                       onmouseover="this.style.borderColor='#F97316';this.style.background='#fffaf5';"
+                       onmouseout="this.style.borderColor='#cbd5e1';this.style.background='#fafbfd';">
+                    @if (!string.IsNullOrEmpty(_empresaLogoPreview))
+                    {
+                        <img src="@_empresaLogoPreview" style="max-height:80px;max-width:200px;object-fit:contain;" alt="Logo" />
+                        <span style="font-size:12px;color:#94a3b8;">Clic para cambiar</span>
+                    }
+                    else
+                    {
+                        <span class="icon" style="font-size:32px;color:#94a3b8;">add_photo_alternate</span>
+                        <span style="font-size:13px;color:#64748b;">Seleccionar logo (PNG, JPG)</span>
+                    }
+                    <InputFile OnChange="OnEmpresaLogoSelected" accept=".png,.jpg,.jpeg" style="display:none;" />
+                </label>
+            </div>
         </div>;
-        _showModal = true;
+    }
+
+    private async Task OnEmpresaLogoSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: 3 * 1024 * 1024).CopyToAsync(ms);
+        _empresaForm.Logo = ms.ToArray();
+        _empresaLogoPreview = $"data:{file.ContentType};base64,{Convert.ToBase64String(_empresaForm.Logo)}";
     }
 
     private async Task SaveEmpresa()
@@ -571,19 +588,36 @@
 
     // ── Empleado CRUD ─────────────────────────────────────────────────
     private Empleado _empleadoForm = new();
+    private Dictionary<string, string> _empleadoDatosVariablesForm = [];
+    private string _empleadoFechaIngresoStr = "";
 
-    private void OpenAddEmpleado()
+    private async Task OpenAddEmpleado()
     {
-        _empleadoForm = new();
+        _empleadoForm = new() { EstadoLaboral = true };
+        _empleadoFechaIngresoStr = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        _empleadoDatosVariablesForm = [];
+        if (!_empleadoColumnasDinamicas.Any())
+            _empleadoColumnasDinamicas = (await EmpleadoSvc.ObtenerTodosDatosVariablesAsync()).OrderBy(d => d.NombreCampo).ToList();
         _modalTitle = "Agregar empleado";
         _modalSaveAction = SaveEmpleado;
         SetEmpleadoModalContent();
         _showModal = true;
     }
 
-    private void OpenEditEmpleado(Empleado e)
+    private async Task OpenEditEmpleado(Empleado e)
     {
-        _empleadoForm = new() { Id = e.Id, NombreCompleto = e.NombreCompleto, Email = e.Email, Cedula = e.Cedula, EmpresaId = e.EmpresaId, Cargo = e.Cargo, SalarioMensual = e.SalarioMensual, FechaIngreso = e.FechaIngreso };
+        _empleadoForm = new()
+        {
+            Id = e.Id, NombreCompleto = e.NombreCompleto, Email = e.Email,
+            Cedula = e.Cedula, EmpresaId = e.EmpresaId, Cargo = e.Cargo,
+            SalarioMensual = e.SalarioMensual, FechaIngreso = e.FechaIngreso,
+            TipoContrato = e.TipoContrato, CiudadDeTrabajo = e.CiudadDeTrabajo,
+            TipoId = e.TipoId, EstadoLaboral = e.EstadoLaboral, tipoSalario = e.tipoSalario
+        };
+        _empleadoFechaIngresoStr = e.FechaIngreso.ToString("yyyy-MM-dd");
+        _empleadoDatosVariablesForm = DatosVariablesHelper.Parse(e.DatosVariables);
+        if (!_empleadoColumnasDinamicas.Any())
+            _empleadoColumnasDinamicas = (await EmpleadoSvc.ObtenerTodosDatosVariablesAsync()).OrderBy(d => d.NombreCampo).ToList();
         _modalTitle = "Editar empleado";
         _modalSaveAction = SaveEmpleado;
         SetEmpleadoModalContent();
@@ -592,47 +626,132 @@
 
     private void SetEmpleadoModalContent()
     {
-        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre completo</label>
-                <input @bind="_empleadoForm.NombreCompleto" placeholder="Apellidos y nombres" style="@InputStyle" />
+        _modalContent = @<div style="display:flex;flex-direction:column;gap:20px;">
+            <div>
+                <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;">Datos personales</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre completo</label>
+                        <input @bind="_empleadoForm.NombreCompleto" placeholder="Apellidos y nombres" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Cédula</label>
+                        <input @bind="_empleadoForm.Cedula" placeholder="0.000.000.000" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Tipo de identificación</label>
+                        <input @bind="_empleadoForm.TipoId" placeholder="Ej. CC, CE, PA" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
+                        <input @bind="_empleadoForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Estado laboral</label>
+                        <select value="@(_empleadoForm.EstadoLaboral ? "true" : "false")"
+                                @onchange='e => _empleadoForm.EstadoLaboral = e.Value?.ToString() == "true"'
+                                style="@SelectStyle">
+                            <option value="true">Activo</option>
+                            <option value="false">Inactivo</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Cédula</label>
-                <input @bind="_empleadoForm.Cedula" placeholder="0.000.000.000" style="@InputStyle" />
+            <div>
+                <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;">Datos laborales</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Empresa</label>
+                        <select @bind="_empleadoForm.EmpresaId" style="@SelectStyle">
+                            <option value="0">— Seleccione —</option>
+                            @foreach (var emp in _empresas)
+                            {
+                                <option value="@emp.Id">@emp.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Cargo</label>
+                        <input @bind="_empleadoForm.Cargo" placeholder="Cargo actual" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Tipo de contrato</label>
+                        <input @bind="_empleadoForm.TipoContrato" placeholder="Ej. Término indefinido" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Salario mensual</label>
+                        <input @bind="_empleadoForm.SalarioMensual" placeholder="0" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Tipo de salario</label>
+                        <input @bind="_empleadoForm.tipoSalario" placeholder="Ej. Fijo, Variable" style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Ciudad de trabajo</label>
+                        <input @bind="_empleadoForm.CiudadDeTrabajo" placeholder="Ej. Bogotá D.C." style="@InputStyle" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                        <label style="font-size:12.5px;font-weight:500;color:#475569;">Fecha de ingreso</label>
+                        <input type="date"
+                               value="@_empleadoFechaIngresoStr"
+                               @onchange='e => _empleadoFechaIngresoStr = e.Value?.ToString() ?? ""'
+                               style="@InputStyle" />
+                    </div>
+                </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
-                <input @bind="_empleadoForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Cargo</label>
-                <input @bind="_empleadoForm.Cargo" placeholder="Cargo actual" style="@InputStyle" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Salario mensual</label>
-                <input @bind="_empleadoForm.SalarioMensual" placeholder="0" style="@InputStyle" />
-            </div>
-            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
-                <label style="font-size:12.5px;font-weight:500;color:#475569;">Empresa</label>
-                <select @bind="_empleadoForm.EmpresaId" style="@SelectStyle">
-                    <option value="0">— Seleccione —</option>
-                    @foreach (var emp in _empresas)
-                    {
-                        <option value="@emp.Id">@emp.Nombre</option>
-                    }
-                </select>
-            </div>
+            @if (_empleadoColumnasDinamicas.Any())
+            {
+                <div>
+                    <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;">Datos variables</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        @foreach (var dv in _empleadoColumnasDinamicas)
+                        {
+                            var clave = dv.Clave;
+                            <div style="display:flex;flex-direction:column;gap:5px;">
+                                <label style="font-size:12.5px;font-weight:500;color:#475569;">@dv.NombreCampo</label>
+                                @if (dv.TipoDato == TipoDatoVariable.Booleano)
+                                {
+                                    <select value="@(_empleadoDatosVariablesForm.GetValueOrDefault(clave, "false"))"
+                                            @onchange='e => _empleadoDatosVariablesForm[clave] = e.Value?.ToString() ?? ""'
+                                            style="@SelectStyle">
+                                        <option value="true">Sí</option>
+                                        <option value="false">No</option>
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input type="@GetInputTypeForDato(dv.TipoDato)"
+                                           value="@(_empleadoDatosVariablesForm.GetValueOrDefault(clave, ""))"
+                                           @oninput='e => _empleadoDatosVariablesForm[clave] = e.Value?.ToString() ?? ""'
+                                           style="@InputStyle" />
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
         </div>;
     }
 
+    private static string GetInputTypeForDato(TipoDatoVariable tipo) => tipo switch
+    {
+        TipoDatoVariable.Numero => "number",
+        TipoDatoVariable.Fecha => "date",
+        _ => "text"
+    };
+
     private async Task SaveEmpleado()
     {
+        if (DateOnly.TryParse(_empleadoFechaIngresoStr, out var fecha))
+            _empleadoForm.FechaIngreso = fecha;
+        _empleadoForm.DatosVariables = DatosVariablesHelper.ToJson(_empleadoDatosVariablesForm);
         if (_empleadoForm.Id == 0)
             await EmpleadoSvc.AgregarEmpleadoAsync(_empleadoForm);
         else
             await EmpleadoSvc.ActualizarEmpleadoAsync(_empleadoForm);
-        _empleados = await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
+        _empleados = _filtroEmpresaId > 0
+            ? await EmpleadoSvc.ObtenerEmpleadosPorEmpresaIdAsync(_filtroEmpresaId)
+            : await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
         Snackbar.Add("Empleado guardado.", Severity.Success);
         _showModal = false;
     }
@@ -640,16 +759,20 @@
     private async Task DeleteEmpleado(int id)
     {
         await EmpleadoSvc.EliminarEmpleadoAsync(id);
-        _empleados = await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
+        _empleados = _filtroEmpresaId > 0
+            ? await EmpleadoSvc.ObtenerEmpleadosPorEmpresaIdAsync(_filtroEmpresaId)
+            : await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
         Snackbar.Add("Empleado eliminado.", Severity.Success);
     }
 
     // ── Firmante CRUD ─────────────────────────────────────────────────
     private Firmante _firmanteForm = new();
+    private string _firmanteFirmaPreview = "";
 
     private void OpenAddFirmante()
     {
         _firmanteForm = new();
+        _firmanteFirmaPreview = "";
         _modalTitle = "Agregar representante legal";
         _modalSaveAction = SaveFirmante;
         SetFirmanteModalContent();
@@ -658,7 +781,10 @@
 
     private void OpenEditFirmante(Firmante f)
     {
-        _firmanteForm = new() { Id = f.Id, NombreCompleto = f.NombreCompleto, Cargo = f.Cargo };
+        _firmanteForm = new() { Id = f.Id, NombreCompleto = f.NombreCompleto, Cargo = f.Cargo, Firma = f.Firma };
+        _firmanteFirmaPreview = f.Firma != null && f.Firma.Length > 0
+            ? $"data:{GetImageMimeType(f.Firma)};base64,{Convert.ToBase64String(f.Firma)}"
+            : "";
         _modalTitle = "Editar representante legal";
         _modalSaveAction = SaveFirmante;
         SetFirmanteModalContent();
@@ -676,7 +802,34 @@
                 <label style="font-size:12.5px;font-weight:500;color:#475569;">Cargo</label>
                 <input @bind="_firmanteForm.Cargo" placeholder="Ej. Gerente General" style="@InputStyle" />
             </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Imagen de firma</label>
+                <label style="border:1.5px dashed #cbd5e1;border-radius:6px;padding:20px 16px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;background:#fafbfd;"
+                       onmouseover="this.style.borderColor='#F97316';this.style.background='#fffaf5';"
+                       onmouseout="this.style.borderColor='#cbd5e1';this.style.background='#fafbfd';">
+                    @if (!string.IsNullOrEmpty(_firmanteFirmaPreview))
+                    {
+                        <img src="@_firmanteFirmaPreview" style="max-height:80px;max-width:240px;object-fit:contain;" alt="Firma" />
+                        <span style="font-size:12px;color:#94a3b8;">Clic para cambiar</span>
+                    }
+                    else
+                    {
+                        <span class="icon" style="font-size:32px;color:#94a3b8;">draw</span>
+                        <span style="font-size:13px;color:#64748b;">Seleccionar imagen de firma (PNG, JPG)</span>
+                    }
+                    <InputFile OnChange="OnFirmanteImageSelected" accept=".png,.jpg,.jpeg" style="display:none;" />
+                </label>
+            </div>
         </div>;
+    }
+
+    private async Task OnFirmanteImageSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: 3 * 1024 * 1024).CopyToAsync(ms);
+        _firmanteForm.Firma = ms.ToArray();
+        _firmanteFirmaPreview = $"data:{file.ContentType};base64,{Convert.ToBase64String(_firmanteForm.Firma)}";
     }
 
     private async Task SaveFirmante()
@@ -942,6 +1095,13 @@
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+    private static string GetImageMimeType(byte[] bytes)
+    {
+        if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50) return "image/png";
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) return "image/jpeg";
+        return "image/png";
+    }
+
     private static string InputStyle =>
         "height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:14px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;width:100%;";
     private static string SelectStyle =>
