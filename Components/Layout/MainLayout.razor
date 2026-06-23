@@ -1,0 +1,95 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+
+<MudThemeProvider Theme="_theme" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<div style="min-height:100vh;display:flex;flex-direction:column;background:#f1f5f9;">
+
+    <!-- App bar -->
+    <div style="position:sticky;top:0;z-index:50;background:#ffffff;height:64px;display:flex;align-items:stretch;padding:0 32px;gap:48px;box-shadow:0 1px 3px rgba(15,23,42,0.08),0 1px 2px rgba(15,23,42,0.05);">
+
+        <!-- Logo -->
+        <div style="display:flex;align-items:center;flex-shrink:0;">
+            <span style="font-size:23px;font-weight:700;color:#F97316;letter-spacing:-0.4px;">UR</span>
+            <span style="font-size:23px;font-weight:500;color:#334155;letter-spacing:-0.4px;">GLOBAL</span>
+        </div>
+
+        <!-- Nav items -->
+        <div style="display:flex;align-items:stretch;gap:4px;flex:1;">
+            @foreach (var item in _navItems)
+            {
+                var isActive = Nav.Uri.Contains(item.Path, StringComparison.OrdinalIgnoreCase);
+                <button @onclick="@(() => Nav.NavigateTo(item.Path))"
+                        style="border:none;background:transparent;padding:0 18px;font-family:Roboto,sans-serif;font-size:14px;font-weight:@(isActive ? "600" : "500");color:@(isActive ? "#ea580c" : "#475569");letter-spacing:0.2px;cursor:pointer;border-bottom:3px solid @(isActive ? "#F97316" : "transparent");border-top:3px solid transparent;transition:color 0.15s;"
+                        onmouseover="this.style.color='#ea580c';this.style.background='#fffaf5';"
+                        onmouseout="this.style.color='@(isActive ? "#ea580c" : "#475569")';this.style.background='transparent';">
+                    @item.Label
+                </button>
+            }
+        </div>
+
+        <!-- User area -->
+        <div style="display:flex;align-items:center;gap:16px;flex-shrink:0;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:32px;height:32px;border-radius:50%;background:#fff7ed;color:#ea580c;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;">
+                    @_initials
+                </div>
+                <div style="font-size:13px;color:#475569;">@_email</div>
+            </div>
+            <button @onclick="HandleLogout" title="Cerrar sesión"
+                    style="width:36px;height:36px;border:none;background:transparent;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;"
+                    onmouseover="this.style.background='#f1f5f9';this.style.color='#ea580c';"
+                    onmouseout="this.style.background='transparent';this.style.color='#64748b';">
+                <span class="icon">logout</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Page content -->
+    <div style="flex:1;min-width:0;">
+        @Body
+    </div>
+
+</div>
+
+@code {
+    private string _email = "";
+    private string _initials = "??";
+
+    private record NavItem(string Label, string Path);
+    private static readonly NavItem[] _navItems =
+    [
+        new("Generar documentos", "/generar-doc"),
+        new("Plantillas", "/plantillas"),
+        new("Administración", "/administracion"),
+        new("Configuración", "/configuracion"),
+    ];
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#F97316",
+            PrimaryContrastText = "#ffffff",
+            Secondary = "#6B7280",
+        }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _email = auth.User.Identity?.Name ?? auth.User.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+        _initials = string.IsNullOrEmpty(_email) ? "??" :
+            string.Join("", _email.Split('@')[0].Split('.', '-', '_').Take(2).Select(s => char.ToUpper(s[0]))).PadRight(2, '?')[..2];
+    }
+
+    private async Task HandleLogout()
+    {
+        await JS.InvokeVoidAsync("authInterop.logout");
+        Nav.NavigateTo("login", forceLoad: true);
+    }
+}

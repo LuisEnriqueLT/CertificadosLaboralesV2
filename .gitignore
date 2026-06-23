@@ -1,0 +1,17 @@
+# Build artifacts
+bin/
+obj/
+*.user
+
+# Visual Studio cache
+.vs/
+
+# Uploaded files (may contain real employee data)
+uploads/
+
+# Internal SDD workspace (Claude Code subagent scratch files)
+.superpowers/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

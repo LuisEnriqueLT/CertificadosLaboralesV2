@@ -1,0 +1,11 @@
+@page "/"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@attribute [Authorize]
+
+@code {
+    protected override void OnInitialized()
+    {
+        Nav.NavigateTo("/generar-doc");
+    }
+}

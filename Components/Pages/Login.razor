@@ -1,0 +1,141 @@
+@page "/login"
+@layout LoginLayout
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Iniciar sesión — URGLOBAL</PageTitle>
+
+<div style="display:flex;min-height:100vh;background:#ffffff;">
+
+    <!-- Left panel: dark corporate photo area -->
+    <div style="flex:1.35;position:relative;background:#0f172a;min-width:0;overflow:hidden;display:flex;align-items:flex-end;padding:48px;">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#0f172a 100%);opacity:0.97;"></div>
+        <div style="position:relative;z-index:1;">
+            <div style="font-size:36px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;margin-bottom:12px;">
+                Certifique laboral<br/>con precisión.
+            </div>
+            <div style="font-size:15px;color:#94a3b8;line-height:1.6;max-width:360px;">
+                Genere, personalice y envíe certificados laborales desde plantillas reutilizables para cada empresa y empleado.
+            </div>
+        </div>
+    </div>
+
+    <!-- Right panel: login form -->
+    <div style="width:540px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:56px 80px;background:#ffffff;">
+
+        <div style="display:flex;align-items:baseline;gap:2px;margin-bottom:8px;">
+            <span style="font-size:30px;font-weight:700;color:#F97316;letter-spacing:-0.5px;">UR</span>
+            <span style="font-size:30px;font-weight:500;color:#334155;letter-spacing:-0.5px;">GLOBAL</span>
+        </div>
+        <div style="font-size:14.5px;color:#64748b;margin-bottom:40px;line-height:1.5;">Sistema de generación de certificados laborales</div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:10px 14px;font-size:13.5px;color:#dc2626;margin-bottom:20px;">
+                @_error
+            </div>
+        }
+
+        <!-- Email -->
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px;">
+            <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Correo electrónico</label>
+            <input @bind="_email" @bind:event="oninput" type="email" placeholder="correo@empresa.com"
+                   style="height:44px;border:1px solid #cbd5e1;border-radius:4px;padding:0 14px;font-size:14.5px;font-family:Roboto,sans-serif;color:#1e293b;background:#ffffff;outline:none;width:100%;transition:border-color 0.15s,box-shadow 0.15s;"
+                   onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                   onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+        </div>
+
+        <!-- Password -->
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Contraseña</label>
+            <input @bind="_password" @bind:event="oninput" type="password" placeholder="••••••••"
+                   @onkeydown="HandleKeyDown"
+                   style="height:44px;border:1px solid #cbd5e1;border-radius:4px;padding:0 14px;font-size:14.5px;font-family:Roboto,sans-serif;color:#1e293b;background:#ffffff;outline:none;width:100%;transition:border-color 0.15s,box-shadow 0.15s;"
+                   onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                   onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+        </div>
+
+        <!-- Remember me + Forgot password -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:#475569;cursor:pointer;">
+                <input type="checkbox" @bind="_rememberMe" style="width:16px;height:16px;accent-color:#F97316;cursor:pointer;margin:0;" />
+                Recordarme
+            </label>
+            <a href="/contrasena-olvidada" style="font-size:13.5px;color:#ea580c;text-decoration:none;font-weight:500;"
+               onmouseover="this.style.textDecoration='underline';"
+               onmouseout="this.style.textDecoration='none';">¿Olvidó su contraseña?</a>
+        </div>
+
+        <!-- Submit button -->
+        <button @onclick="HandleLogin" disabled="@_loading"
+                style="height:44px;border:none;border-radius:4px;background:@(_loading ? "#fdba74" : "#F97316");color:#ffffff;font-family:Roboto,sans-serif;font-size:14px;font-weight:500;letter-spacing:0.6px;text-transform:uppercase;cursor:@(_loading ? "default" : "pointer");box-shadow:0 2px 6px rgba(249,115,22,0.35);width:100%;display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.15s;"
+                onmouseover="@(_loading ? "" : "this.style.background='#ea580c';")"
+                onmouseout="@(_loading ? "" : "this.style.background='#F97316';")">
+            @if (_loading)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Inherit" />
+                <span>Ingresando…</span>
+            }
+            else
+            {
+                <span>Ingresar</span>
+            }
+        </button>
+
+        <div style="border-top:1px solid #e2e8f0;padding-top:20px;font-size:12px;color:#94a3b8;margin-top:48px;">
+            © @DateTime.Now.Year URGLOBAL · Acceso restringido a personal autorizado
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _email = "";
+    private string _password = "";
+    private bool _rememberMe = false;
+    private bool _loading = false;
+    private string _error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        if (auth.User.Identity?.IsAuthenticated == true)
+            Nav.NavigateTo("/generar-doc", forceLoad: true);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await HandleLogin();
+    }
+
+    private async Task HandleLogin()
+    {
+        if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
+        {
+            _error = "Ingrese su correo y contraseña.";
+            return;
+        }
+
+        _loading = true;
+        _error = "";
+        StateHasChanged();
+
+        try
+        {
+            var result = await JS.InvokeAsync<string>("authInterop.login", _email, _password, _rememberMe);
+            if (result == "ok")
+                Nav.NavigateTo("/generar-doc", forceLoad: true);
+            else
+                _error = result;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error inesperado: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

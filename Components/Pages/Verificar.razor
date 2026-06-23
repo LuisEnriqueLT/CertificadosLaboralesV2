@@ -1,0 +1,121 @@
+@page "/verificar/{Codigo}"
+@layout Layout.LoginLayout
+@attribute [AllowAnonymous]
+@inject HistorialService HistorialSvc
+@inject EmpleadoService EmpleadoSvc
+@inject EmpresaService EmpresaSvc
+
+<PageTitle>Verificar documento — Uiglobal</PageTitle>
+
+<div style="min-height:100vh;background:#f1f5f9;display:flex;align-items:center;justify-content:center;padding:32px 16px;">
+    <div style="width:100%;max-width:480px;">
+
+        <!-- Logo -->
+        <div style="text-align:center;margin-bottom:28px;">
+            <span style="font-size:26px;font-weight:700;color:#F97316;">Ui</span>
+            <span style="font-size:26px;font-weight:500;color:#334155;">global</span>
+            <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Verificación de documentos</div>
+        </div>
+
+        @if (_loading)
+        {
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:40px;text-align:center;">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                <div style="margin-top:12px;font-size:13px;color:#64748b;">Verificando documento...</div>
+            </div>
+        }
+        else if (_notFound)
+        {
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:10px;padding:36px;text-align:center;">
+                <div style="width:56px;height:56px;border-radius:50%;background:#fef2f2;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+                    <span class="icon" style="font-size:28px;color:#dc2626;">close</span>
+                </div>
+                <div style="font-size:18px;font-weight:700;color:#dc2626;margin-bottom:8px;">No se pudo verificar</div>
+                <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Este código no corresponde a ningún documento en el sistema.</div>
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px;text-align:left;font-size:12px;color:#991b1b;">
+                    <strong>Posibles causas:</strong>
+                    <ul style="margin:6px 0 0 16px;padding:0;line-height:1.9;">
+                        <li>El documento fue alterado o es falso</li>
+                        <li>El código QR está dañado o mal escaneado</li>
+                        <li>El documento no fue generado por este sistema</li>
+                    </ul>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div style="background:#fff;border:1px solid #bbf7d0;border-radius:10px;padding:36px;">
+                <div style="text-align:center;margin-bottom:20px;">
+                    <div style="width:56px;height:56px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+                        <span class="icon" style="font-size:28px;color:#16a34a;">check</span>
+                    </div>
+                    <div style="font-size:18px;font-weight:700;color:#16a34a;">Documento Auténtico</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:4px;">Este certificado fue emitido por el sistema</div>
+                </div>
+
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                    <div>
+                        <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Empleado</div>
+                        <div style="font-size:13.5px;font-weight:600;color:#1e293b;">@_nombreEmpleado</div>
+                    </div>
+                    <div>
+                        <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Empresa</div>
+                        <div style="font-size:13.5px;font-weight:600;color:#1e293b;">@_nombreEmpresa</div>
+                    </div>
+                    <div>
+                        <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Tipo de documento</div>
+                        <div style="font-size:13.5px;font-weight:600;color:#1e293b;">@_tipoDocumento</div>
+                    </div>
+                    <div>
+                        <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Fecha de emisión</div>
+                        <div style="font-size:13.5px;font-weight:600;color:#1e293b;">@_fechaEmision</div>
+                    </div>
+                </div>
+
+                <div style="margin-top:14px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;color:#15803d;word-break:break-all;">
+                    Código: <strong>@Codigo</strong>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Codigo { get; set; } = "";
+
+    private bool _loading = true;
+    private bool _notFound = false;
+    private string _nombreEmpleado = "";
+    private string _nombreEmpresa = "";
+    private string _tipoDocumento = "";
+    private string _fechaEmision = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Guid.TryParse(Codigo, out var guid))
+        {
+            _notFound = true;
+            _loading = false;
+            return;
+        }
+
+        var historial = await HistorialSvc.BuscarPorCodigoAsync(guid);
+        if (historial == null)
+        {
+            _notFound = true;
+            _loading = false;
+            return;
+        }
+
+        var empleado = await EmpleadoSvc.ObtenerEmpleadoPorIdAsync(historial.CreadoParaId);
+        var empresa = await EmpresaSvc.ObtenerEmpresaPorIdAsync(historial.EmpresaId);
+
+        _nombreEmpleado = empleado?.NombreCompleto ?? "—";
+        _nombreEmpresa = empresa?.Nombre ?? "—";
+        _tipoDocumento = string.IsNullOrEmpty(historial.NombreDocumento) ? "Certificado Laboral" : historial.NombreDocumento;
+        _fechaEmision = historial.FechaCreacion.ToLocalTime().ToString("dd 'de' MMMM 'de' yyyy",
+            new System.Globalization.CultureInfo("es-CO"));
+
+        _loading = false;
+    }
+}

@@ -1,0 +1,355 @@
+@page "/configuracion"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject FuenteService FuenteSvc
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@using System.Globalization
+
+<PageTitle>Configuración — Uiglobal</PageTitle>
+
+<div style="flex:1;width:100%;max-width:1560px;margin:0 auto;padding:28px 32px 40px;display:flex;flex-direction:column;gap:18px;">
+
+    <!-- Header -->
+    <div>
+        <div style="font-size:22px;font-weight:600;letter-spacing:-0.2px;color:#0f172a;">Configuración</div>
+        <div style="font-size:13.5px;color:#64748b;margin-top:4px;">Administre fuentes tipográficas y consulte los placeholders de fecha disponibles</div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;align-items:stretch;padding:0 10px;overflow-x:auto;">
+        @foreach (var tab in _tabs)
+        {
+            var active = _activeTab == tab;
+            <button @onclick="@(() => SelectTab(tab))"
+                    style="height:48px;padding:0 20px;border:none;background:transparent;border-bottom:2.5px solid @(active ? "#F97316" : "transparent");border-top:2.5px solid transparent;color:@(active ? "#ea580c" : "#64748b");font-family:Roboto,sans-serif;font-size:13px;font-weight:@(active ? "600" : "500");letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;white-space:nowrap;"
+                    onmouseover="this.style.color='#ea580c';this.style.background='#fffaf5';"
+                    onmouseout="this.style.color='@(active ? "#ea580c" : "#64748b")';this.style.background='transparent';">
+                @tab
+            </button>
+        }
+    </div>
+
+    <!-- Tab: Fuentes -->
+    @if (_activeTab == "Fuentes")
+    {
+        <!-- Upload form card -->
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);padding:28px 32px;">
+            <div style="font-size:15px;font-weight:600;color:#0f172a;margin-bottom:20px;">Agregar nueva fuente</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:end;">
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre</label>
+                    <input @bind="_fNombre" @oninput="OnNombreInput"
+                           placeholder="Ej. Montserrat Bold"
+                           style="@InputStyle"
+                           onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                           onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label style="font-size:12.5px;font-weight:500;color:#475569;">Slug <span style="color:#94a3b8;font-weight:400;">(auto-generado, editable)</span></label>
+                    <input @bind="_fSlug" @bind:event="oninput"
+                           placeholder="Ej. montserrat-bold"
+                           style="@InputStyle"
+                           onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                           onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label style="font-size:12.5px;font-weight:500;color:#475569;">Archivo de fuente</label>
+                    <label style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;font-size:13.5px;color:#475569;background:#fafbfd;white-space:nowrap;"
+                           onmouseover="this.style.borderColor='#F97316';this.style.background='#fffaf5';"
+                           onmouseout="this.style.borderColor='#cbd5e1';this.style.background='#fafbfd';">
+                        <span class="icon" style="font-size:18px;color:#94a3b8;">upload_file</span>
+                        @(_fFileName ?? "Seleccionar .ttf / .otf")
+                        <InputFile OnChange="OnFuenteFileSelected" accept=".ttf,.otf" style="display:none;" />
+                    </label>
+                </div>
+            </div>
+            <div style="margin-top:20px;display:flex;gap:12px;align-items:center;">
+                <button @onclick="AgregarFuente" disabled="@(_guardandoFuente)"
+                        style="height:40px;padding:0 20px;border:none;border-radius:4px;background:#F97316;color:#ffffff;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(249,115,22,0.35);opacity:@(_guardandoFuente ? "0.6" : "1");"
+                        onmouseover="this.style.background='#ea580c';"
+                        onmouseout="this.style.background='#F97316';">
+                    @(_guardandoFuente ? "Guardando…" : "Agregar fuente")
+                </button>
+                @if (!string.IsNullOrEmpty(_fError))
+                {
+                    <span style="font-size:13px;color:#dc2626;">@_fError</span>
+                }
+            </div>
+        </div>
+
+        <!-- Fuentes table card -->
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:16px 24px;border-bottom:1px solid #e2e8f0;">
+                <span style="font-size:15px;font-weight:600;color:#0f172a;">Fuentes registradas</span>
+            </div>
+            @if (_loadingFuentes)
+            {
+                <div style="padding:60px;display:flex;justify-content:center;">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                </div>
+            }
+            else
+            {
+                <div style="overflow-x:auto;">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Slug</th>
+                                <th>Extensión</th>
+                                <th style="text-align:center;">Activa</th>
+                                <th style="text-align:right;">Eliminar</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var fuente in _fuentes)
+                            {
+                                <tr>
+                                    <td>@fuente.Nombre</td>
+                                    <td style="font-family:monospace;font-size:13px;color:#475569;">@fuente.Slug</td>
+                                    <td style="color:#64748b;">@fuente.Extension</td>
+                                    <td style="text-align:center;">
+                                        <input type="checkbox" checked="@fuente.Activa"
+                                               @onchange="@(async e => await ToggleActiva(fuente, (bool)(e.Value ?? false)))"
+                                               style="width:16px;height:16px;accent-color:#F97316;cursor:pointer;" />
+                                    </td>
+                                    <td style="text-align:right;">
+                                        <button @onclick="@(() => EliminarFuente(fuente.Id))" title="Eliminar fuente"
+                                                style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:#dc2626;cursor:pointer;vertical-align:middle;"
+                                                onmouseover="this.style.background='#fef2f2';"
+                                                onmouseout="this.style.background='transparent';">
+                                            <span class="icon" style="font-size:19px;">delete</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                            @if (!_fuentes.Any())
+                            {
+                                <tr>
+                                    <td colspan="5" style="text-align:center;color:#94a3b8;padding:40px;">
+                                        No hay fuentes registradas. Agregue una arriba.
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Tab: Placeholders de fecha -->
+    @if (_activeTab == "Placeholders de fecha")
+    {
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:16px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:15px;font-weight:600;color:#0f172a;">Placeholders de fecha disponibles</span>
+                <span style="font-size:12.5px;color:#94a3b8;">Ejemplos calculados con la fecha actual: @DateTime.Now.ToString("dd/MM/yyyy")</span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Placeholder</th>
+                            <th>Ejemplo (hoy)</th>
+                            <th>Descripción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ph in _fechaPlaceholders)
+                        {
+                            <tr>
+                                <td style="font-family:monospace;font-size:13px;color:#ea580c;font-weight:500;">@ph.Placeholder</td>
+                                <td style="color:#1e293b;">@ph.Ejemplo</td>
+                                <td style="color:#64748b;">@ph.Descripcion</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div style="padding:16px 24px;border-top:1px solid #e2e8f0;">
+                <div style="font-size:12.5px;color:#64748b;display:flex;align-items:center;gap:6px;">
+                    <span class="icon" style="font-size:16px;color:#94a3b8;">info</span>
+                    Use estos placeholders en sus plantillas de documento. Se reemplazarán automáticamente con la fecha en que se genera el certificado.
+                </div>
+            </div>
+        </div>
+    }
+
+</div>
+
+@code {
+    private static readonly string[] _tabs = ["Fuentes", "Placeholders de fecha"];
+    private string _activeTab = "Fuentes";
+
+    // ── Fuentes ───────────────────────────────────────────────────────
+    private List<Fuente> _fuentes = [];
+    private bool _loadingFuentes = false;
+
+    private string _fNombre = "";
+    private string _fSlug = "";
+    private string? _fFileName;
+    private IBrowserFile? _fFile;
+    private bool _guardandoFuente = false;
+    private string _fError = "";
+
+    // ── Placeholders de fecha (hardcoded) ─────────────────────────────
+    private record FechaPlaceholder(string Placeholder, string Ejemplo, string Descripcion);
+
+    private List<FechaPlaceholder> _fechaPlaceholders = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildFechaPlaceholders();
+        await CargarFuentes();
+    }
+
+    private void BuildFechaPlaceholders()
+    {
+        var now = DateTime.Now;
+        var culture = new CultureInfo("es-CO");
+        _fechaPlaceholders =
+        [
+            new("{{Dia}}",          now.Day.ToString(),                                          "Día del mes (sin cero)"),
+            new("{{DiaStr}}",       CreateDocService.NumToWords(now.Day).ToLower(),              "Día en letras"),
+            new("{{Mes}}",          now.ToString("MMMM", culture),                              "Nombre del mes en español"),
+            new("{{MesNum}}",       now.Month.ToString("D2"),                                   "Número del mes (con cero)"),
+            new("{{Anio}}",         now.Year.ToString(),                                        "Año de 4 dígitos"),
+            new("{{FechaCompleta}}", now.ToString("d 'de' MMMM 'de' yyyy", culture),           "Fecha escrita completa"),
+            new("{{FechaCorta}}",   now.ToString("dd/MM/yyyy"),                                 "Formato dd/MM/yyyy"),
+            new("{{FechaISO}}",     now.ToString("yyyy-MM-dd"),                                 "Formato ISO 8601"),
+        ];
+    }
+
+    private async Task CargarFuentes()
+    {
+        _loadingFuentes = true;
+        StateHasChanged();
+        try
+        {
+            _fuentes = await FuenteSvc.ObtenerTodasAsync();
+        }
+        finally
+        {
+            _loadingFuentes = false;
+        }
+    }
+
+    private async Task SelectTab(string tab)
+    {
+        _activeTab = tab;
+        if (tab == "Fuentes")
+            await CargarFuentes();
+    }
+
+    // ── Upload / slug logic ───────────────────────────────────────────
+    private void OnNombreInput(ChangeEventArgs e)
+    {
+        _fNombre = e.Value?.ToString() ?? "";
+        _fSlug = GenerarSlug(_fNombre);
+    }
+
+    private static string GenerarSlug(string nombre)
+    {
+        var lower = nombre.ToLowerInvariant().Replace(" ", "-");
+        return string.Concat(lower.Where(c => char.IsLetterOrDigit(c) || c == '-'));
+    }
+
+    private void OnFuenteFileSelected(InputFileChangeEventArgs e)
+    {
+        _fFile = e.File;
+        _fFileName = e.File.Name;
+        _fError = "";
+    }
+
+    private async Task AgregarFuente()
+    {
+        _fError = "";
+
+        if (string.IsNullOrWhiteSpace(_fNombre))
+        {
+            _fError = "El nombre es requerido.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_fSlug))
+        {
+            _fError = "El slug es requerido.";
+            return;
+        }
+        if (_fFile == null)
+        {
+            _fError = "Seleccione un archivo de fuente (.ttf o .otf).";
+            return;
+        }
+
+        var ext = Path.GetExtension(_fFile.Name).ToLowerInvariant();
+        if (ext != ".ttf" && ext != ".otf")
+        {
+            _fError = "Solo se aceptan archivos .ttf o .otf.";
+            return;
+        }
+
+        _guardandoFuente = true;
+        try
+        {
+            using var stream = _fFile.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+
+            var fuente = new Fuente
+            {
+                Nombre = _fNombre.Trim(),
+                Slug = _fSlug.Trim(),
+                Extension = ext,
+                Archivo = ms.ToArray(),
+                Activa = true,
+                FechaSubida = DateTime.UtcNow
+            };
+
+            bool ok = await FuenteSvc.AgregarFuenteAsync(fuente);
+            if (ok)
+            {
+                Snackbar.Add("Fuente agregada correctamente.", Severity.Success);
+                _fNombre = "";
+                _fSlug = "";
+                _fFile = null;
+                _fFileName = null;
+                await CargarFuentes();
+            }
+            else
+            {
+                _fError = "Ya existe una fuente con ese slug. Elija un slug diferente.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _fError = $"Error al guardar: {ex.Message}";
+        }
+        finally
+        {
+            _guardandoFuente = false;
+        }
+    }
+
+    private async Task ToggleActiva(Fuente fuente, bool valor)
+    {
+        fuente.Activa = valor;
+        bool ok = await FuenteSvc.ActualizarFuenteAsync(fuente);
+        if (ok)
+            Snackbar.Add(valor ? "Fuente activada." : "Fuente desactivada.", Severity.Info);
+        else
+            Snackbar.Add("Error al actualizar la fuente.", Severity.Error);
+    }
+
+    private async Task EliminarFuente(int id)
+    {
+        await FuenteSvc.EliminarFuenteAsync(id);
+        _fuentes = _fuentes.Where(f => f.Id != id).ToList();
+        Snackbar.Add("Fuente eliminada.", Severity.Success);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    private static string InputStyle =>
+        "height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:14px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;width:100%;";
+}

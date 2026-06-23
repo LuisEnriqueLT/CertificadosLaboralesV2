@@ -1,0 +1,642 @@
+@page "/plantillas"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@implements IAsyncDisposable
+@using CertificadosLaboralesV2.Models
+@using CertificadosLaboralesV2.Services.Documents
+@inject PlantillaService PlantillaSvc
+@inject EmpresaService EmpresaSvc
+@inject PlaceholderService PlaceholderSvc
+@inject WordService WordSvc
+@inject CreateDocService DocSvc
+@inject FuenteService FuenteSvc
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@inject IWebHostEnvironment WebHostEnv
+
+<PageTitle>Plantillas — URGLOBAL</PageTitle>
+
+@if (!string.IsNullOrEmpty(_customFontCss))
+{
+    @((MarkupString)$"<style id='custom-font-faces'>{_customFontCss}</style>")
+}
+
+<div style="flex:1;width:100%;max-width:1560px;margin:0 auto;padding:28px 32px 40px;">
+
+    <!-- Header -->
+    <div style="margin-bottom:22px;">
+        <div style="font-size:22px;font-weight:600;letter-spacing:-0.2px;color:#0f172a;">Plantillas</div>
+        <div style="font-size:13.5px;color:#64748b;margin-top:4px;">Cree y administre las plantillas de los documentos generados</div>
+    </div>
+
+    <div style="display:flex;gap:24px;align-items:flex-start;">
+
+        <!-- Left panel: new/edit template -->
+        <div style="width:400px;flex-shrink:0;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);padding:26px 28px;display:flex;flex-direction:column;gap:20px;">
+
+            <div>
+                <div style="font-size:16px;font-weight:600;color:#0f172a;">@(_editingId > 0 ? "Editar plantilla" : "Nueva plantilla")</div>
+                <div style="font-size:13px;color:#64748b;margin-top:3px;">Cargue un documento base o redacte desde cero</div>
+            </div>
+
+            <!-- Docx upload area -->
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Documento base (.docx)</label>
+                <label style="border:1.5px dashed #cbd5e1;border-radius:6px;padding:22px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;background:#fafbfd;transition:border-color 0.15s,background 0.15s;"
+                       onmouseover="this.style.borderColor='#F97316';this.style.background='#fffaf5';"
+                       onmouseout="this.style.borderColor='#cbd5e1';this.style.background='#fafbfd';">
+                    <span class="icon" style="font-size:28px;color:#94a3b8;">upload_file</span>
+                    <div style="font-size:13.5px;color:#334155;font-weight:500;">@(_docxFile != null ? _docxFile.Name : "Arrastre un archivo .docx")</div>
+                    <div style="font-size:12px;color:#94a3b8;">o haga clic para seleccionar</div>
+                    <InputFile OnChange="OnDocxSelected" accept=".docx" style="display:none;" />
+                </label>
+                <button @onclick="ExtractDocxText" disabled="@(_docxFile == null || _extracting)"
+                        style="height:38px;border:1px solid rgba(249,115,22,0.55);border-radius:4px;background:transparent;color:#ea580c;font-family:Roboto,sans-serif;font-size:12.5px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;opacity:@(_docxFile == null ? "0.5" : "1");">
+                    <span class="icon" style="font-size:17px;">text_snippet</span>
+                    Extraer texto al editor
+                </button>
+            </div>
+
+            <div style="height:1px;background:#e2e8f0;"></div>
+
+            <!-- Empresas asignadas -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Empresas asignadas</label>
+                <div style="position:relative;">
+                    <span class="icon" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:18px;pointer-events:none;">search</span>
+                    <input @bind="_empresaSearch" @bind:event="oninput" type="text" placeholder="Buscar empresa…"
+                           style="width:100%;height:36px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px 0 34px;font-size:13px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;"
+                           onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                           onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+                </div>
+                <div style="border:1px solid #e2e8f0;border-radius:6px;max-height:192px;overflow:auto;">
+                    <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:13px;font-weight:600;color:#334155;border-bottom:1px solid #e2e8f0;cursor:pointer;position:sticky;top:0;background:#f8fafc;">
+                        <input type="checkbox" @onchange="ToggleAllEmpresas" checked="@AllEmpresasSelected"
+                               style="width:15px;height:15px;accent-color:#F97316;cursor:pointer;margin:0;" />
+                        Seleccionar todas
+                    </label>
+                    @foreach (var emp in EmpresasFiltradas)
+                    {
+                        <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:13px;color:#475569;cursor:pointer;border-bottom:1px solid #f8fafc;"
+                               onmouseover="this.style.background='#f8fafc';" onmouseout="this.style.background='transparent';">
+                            <input type="checkbox" checked="@_selectedEmpresas.Contains(emp.Id)"
+                                   @onchange="@(e => ToggleEmpresa(emp.Id, (bool)e.Value!))"
+                                   style="width:15px;height:15px;accent-color:#F97316;cursor:pointer;margin:0;flex-shrink:0;" />
+                            @emp.Nombre
+                        </label>
+                    }
+                </div>
+                <div style="font-size:12px;color:#94a3b8;">@_selectedEmpresas.Count empresa@(_selectedEmpresas.Count == 1 ? "" : "s") seleccionada@(_selectedEmpresas.Count == 1 ? "" : "s")</div>
+            </div>
+
+            <!-- Template name -->
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Nombre de la plantilla</label>
+                <input @bind="_nombre" type="text" placeholder="Ej. Certificado laboral estándar"
+                       style="height:42px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:14px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;width:100%;"
+                       onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                       onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+            </div>
+
+            <!-- Watermark section -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;letter-spacing:0.2px;">Marca de agua</label>
+                <select @bind="_tipoMarca"
+                        style="height:36px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:13px;font-family:Roboto,sans-serif;color:#475569;background:#ffffff;outline:none;width:100%;">
+                    <option value="@TipoMarcaAgua.Ninguna">Ninguna</option>
+                    <option value="@TipoMarcaAgua.Texto">Texto</option>
+                    <option value="@TipoMarcaAgua.Imagen">Imagen</option>
+                </select>
+                @if (_tipoMarca == TipoMarcaAgua.Texto)
+                {
+                    <input @bind="_marcaDeAguaTexto" type="text" placeholder="Ej. BORRADOR, CONFIDENCIAL"
+                           style="height:38px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:13px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;width:100%;" />
+                }
+                @if (_tipoMarca == TipoMarcaAgua.Imagen)
+                {
+                    <label style="border:1.5px dashed #cbd5e1;border-radius:6px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;background:#fafbfd;">
+                        <span class="icon" style="font-size:22px;color:#94a3b8;">image</span>
+                        <div style="font-size:12.5px;color:#334155;">@(_marcaDeAguaImagen != null ? _marcaDeAguaImagen.Name : "Seleccionar imagen PNG/JPG")</div>
+                        <InputFile OnChange="OnMarcaImagenSelected" accept=".png,.jpg,.jpeg" style="display:none;" />
+                    </label>
+                }
+                @if (_tipoMarca != TipoMarcaAgua.Ninguna)
+                {
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">Opacidad: @((_opacidadMarca * 100).ToString("F0"))%</label>
+                            <input type="range" @bind="_opacidadMarca" @bind:event="oninput"
+                                   min="0.01" max="0.5" step="0.01"
+                                   style="flex:1;accent-color:#F97316;" />
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">
+                                @(_tipoMarca == TipoMarcaAgua.Texto ? $"Tamaño: {_tamanoMarca:F0}px" : $"Tamaño: {_tamanoMarca:F0}%")
+                            </label>
+                            <input type="range" @bind="_tamanoMarca" @bind:event="oninput"
+                                   min="@(_tipoMarca == TipoMarcaAgua.Texto ? "20" : "10")"
+                                   max="@(_tipoMarca == TipoMarcaAgua.Texto ? "200" : "100")"
+                                   step="1"
+                                   style="flex:1;accent-color:#F97316;" />
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">Rotación: @_rotacionMarca°</label>
+                            <input type="range" @bind="_rotacionMarca" @bind:event="oninput"
+                                   min="-180" max="180" step="1"
+                                   style="flex:1;accent-color:#F97316;" />
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">Posición X: @_posXMarca.ToString("F0")%</label>
+                            <input type="range" @bind="_posXMarca" @bind:event="oninput"
+                                   min="0" max="100" step="1"
+                                   style="flex:1;accent-color:#F97316;" />
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <label style="font-size:12px;color:#64748b;white-space:nowrap;min-width:120px;">Posición Y: @_posYMarca.ToString("F0")%</label>
+                            <input type="range" @bind="_posYMarca" @bind:event="oninput"
+                                   min="0" max="100" step="1"
+                                   style="flex:1;accent-color:#F97316;" />
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Buttons -->
+            <div style="display:flex;gap:12px;">
+                <button @onclick="HandleGuardar" disabled="@_saving"
+                        style="flex:1;height:42px;border:none;border-radius:4px;background:#F97316;color:#ffffff;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(249,115,22,0.35);">
+                    @(_saving ? "Guardando…" : "Guardar")
+                </button>
+                <button @onclick="HandlePrevisualizar" disabled="@(_previewLoading)"
+                        style="flex:1;height:42px;border:1px solid rgba(249,115,22,0.55);border-radius:4px;background:transparent;color:#ea580c;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;">
+                    Previsualizar
+                </button>
+            </div>
+
+            @if (_editingId > 0)
+            {
+                <button @onclick="NuevaPlantilla"
+                        style="height:38px;border:none;border-radius:4px;background:#f1f5f9;color:#64748b;font-family:Roboto,sans-serif;font-size:12.5px;cursor:pointer;">
+                    + Nueva plantilla
+                </button>
+            }
+
+            <!-- Existing templates list -->
+            @if (_todasPlantillas.Any())
+            {
+                <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid #e2e8f0;padding-top:16px;">
+                    <div style="font-size:12px;font-weight:600;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Plantillas existentes</div>
+                    @foreach (var p in _todasPlantillas)
+                    {
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:4px;background:@(_editingId == p.Id ? "#fff7ed" : "transparent");"
+                             onmouseover="this.style.background='#f8fafc';" onmouseout="this.style.background='@(_editingId == p.Id ? "#fff7ed" : "transparent")';">
+                            <span style="font-size:13px;color:#334155;">@p.NombrePlantilla</span>
+                            <div style="display:flex;gap:4px;">
+                                <button @onclick="@(() => EditarPlantilla(p))" title="Editar"
+                                        style="width:28px;height:28px;border:none;background:transparent;border-radius:50%;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                                    <span class="icon" style="font-size:17px;">edit</span>
+                                </button>
+                                <button @onclick="@(() => EliminarPlantilla(p.Id))" title="Eliminar"
+                                        style="width:28px;height:28px;border:none;background:transparent;border-radius:50%;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                                    <span class="icon" style="font-size:17px;">delete</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Editor card -->
+        <div style="flex:1;min-width:0;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;flex-direction:column;overflow:hidden;min-height:600px;">
+
+            <!-- Editor header: placeholder selector -->
+            <div style="padding:14px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+                <span style="font-size:15px;font-weight:600;color:#0f172a;">Editor de plantilla</span>
+                <div style="position:relative;width:260px;">
+                    <select @onchange="InsertarPlaceholder"
+                            style="appearance:none;-webkit-appearance:none;width:100%;height:36px;border:1px solid #cbd5e1;border-radius:4px;padding:0 34px 0 12px;font-size:13px;font-family:Roboto,sans-serif;color:#475569;background:#ffffff;cursor:pointer;outline:none;"
+                            onfocus="this.style.borderColor='#F97316';"
+                            onblur="this.style.borderColor='#cbd5e1';">
+                        <option value="">Insertar placeholder…</option>
+                        <optgroup label="Empleado">
+                            <option value="{{NombreEmpleado}}">NombreEmpleado</option>
+                            <option value="{{CedulaEmpleado}}">CedulaEmpleado</option>
+                            <option value="{{CorreoEmpleado}}">CorreoEmpleado</option>
+                            <option value="{{salario}}">Salario</option>
+                            <option value="{{salario_str}}">SalarioLetras</option>
+                        </optgroup>
+                        <optgroup label="Empresa">
+                            <option value="{{NombreEmpresa}}">NombreEmpresa</option>
+                            <option value="{{EmpresaId}}">NIT Empresa</option>
+                            <option value="{{DomicilioEmpresa}}">DomicilioEmpresa</option>
+                            <option value="{{TelefonoEmpresa}}">TelefonoEmpresa</option>
+                            <option value="{{CorreoEmpresa}}">CorreoEmpresa</option>
+                            <option value="{{LogoEmpresa}}">LogoEmpresa</option>
+                        </optgroup>
+                        <optgroup label="Firmante">
+                            <option value="{{Firma}}">Firma</option>
+                            <option value="{{Firmante}}">Firmante</option>
+                            <option value="{{CargoFirmante}}">CargoFirmante</option>
+                        </optgroup>
+                        <optgroup label="Fechas">
+                            <option value="{{Dia}}">Dia</option>
+                            <option value="{{DiaStr}}">DiaStr</option>
+                            <option value="{{Mes}}">Mes</option>
+                            <option value="{{MesNum}}">MesNum</option>
+                            <option value="{{Anio}}">Año</option>
+                            <option value="{{FechaCompleta}}">FechaCompleta</option>
+                            <option value="{{FechaCorta}}">FechaCorta</option>
+                            <option value="{{FechaISO}}">FechaISO</option>
+                        </optgroup>
+                        @if (_placeholders.Any())
+                        {
+                            <optgroup label="Personalizados">
+                                @foreach (var ph in _placeholders)
+                                {
+                                    <option value="{{@ph.PlaceholderTexto}}">@ph.Texto</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                    <span class="icon" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#64748b;font-size:19px;pointer-events:none;">expand_more</span>
+                </div>
+            </div>
+
+            <!-- Jodit editor -->
+            <div id="jodit-editor" style="flex:1;"></div>
+
+            <!-- Footer hint -->
+            <div style="padding:10px 24px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;background:#fafbfd;">
+                <span class="icon" style="font-size:17px;color:#94a3b8;">info</span>
+                <span style="font-size:12.5px;color:#64748b;">Los placeholders @("{{...}}") se reemplazan automáticamente con los datos del empleado al generar el documento.</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview modal -->
+@if (_showPreview)
+{
+    <div @onclick="() => _showPreview = false" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;">
+        <div @onclick:stopPropagation="true" style="background:#ffffff;border-radius:8px;width:780px;max-width:100%;max-height:90vh;box-shadow:0 20px 50px rgba(15,23,42,0.35);display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:18px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:16px;font-weight:600;color:#0f172a;">Vista previa</span>
+                <button @onclick="() => _showPreview = false" style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                    <span class="icon">close</span>
+                </button>
+            </div>
+            <div style="flex:1;overflow:auto;background:#e9eef5;padding:32px;display:flex;justify-content:center;">
+                @if (_previewLoading)
+                {
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                }
+                else
+                {
+                    <div class="paper-doc">
+                        @((MarkupString)_previewContent)
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IJSObjectReference? _joditModule;
+    private bool _domReady = false;
+    private bool _dataReady = false;
+    private bool _joditInitialized = false;
+
+    private List<Empresa> _todasEmpresas = [];
+    private List<PlantillaHtml> _todasPlantillas = [];
+    private List<Placeholder> _placeholders = [];
+    private List<Fuente> _fuentesActivas = [];
+    private string _customFontCss = "";
+
+    private HashSet<int> _selectedEmpresas = [];
+    private string _empresaSearch = "";
+    private string _nombre = "";
+    private int _editingId = 0;
+
+    private IBrowserFile? _docxFile;
+    private bool _extracting = false;
+    private bool _saving = false;
+    private bool _showPreview = false;
+    private bool _previewLoading = false;
+    private string _previewContent = "";
+
+    private TipoMarcaAgua _tipoMarca = TipoMarcaAgua.Ninguna;
+    private string _marcaDeAguaTexto = "";
+    private IBrowserFile? _marcaDeAguaImagen;
+    private string _marcaDeAguaImagenBase64 = "";
+    private double _opacidadMarca = 0.15;
+    private double _tamanoMarca = 80;
+    private int _rotacionMarca = -35;
+    private double _posXMarca = 50;
+    private double _posYMarca = 50;
+
+    private IEnumerable<Empresa> EmpresasFiltradas => string.IsNullOrWhiteSpace(_empresaSearch)
+        ? _todasEmpresas
+        : _todasEmpresas.Where(e => (e.Nombre ?? "").Contains(_empresaSearch, StringComparison.OrdinalIgnoreCase));
+
+    private bool AllEmpresasSelected => _todasEmpresas.Any() && _todasEmpresas.All(e => _selectedEmpresas.Contains(e.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _todasEmpresas = await EmpresaSvc.ObtenerEmpresasAsync();
+        _todasPlantillas = await PlantillaSvc.ObtenerTodasLasPlantillasAsync();
+        _placeholders = await PlaceholderSvc.ObtenerTodosLosPlaceholdersAsync();
+        _fuentesActivas = await FuenteSvc.ObtenerFuentesActivasAsync();
+
+        _customFontCss = string.Join("\n", _fuentesActivas.Select(f =>
+        {
+            var ext = f.Extension.TrimStart('.');
+            var format = ext == "otf" ? "opentype" : "truetype";
+            return $"@font-face {{ font-family: '{f.Nombre}'; src: url('data:font/{ext};base64,{Convert.ToBase64String(f.Archivo)}') format('{format}'); }}";
+        }));
+
+        _dataReady = true;
+        await TryInitJoditAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) _domReady = true;
+        await TryInitJoditAsync();
+    }
+
+    private async Task TryInitJoditAsync()
+    {
+        if (_joditInitialized || !_domReady || !_dataReady) return;
+        _joditInitialized = true;
+
+        var jsPath = Path.Combine(WebHostEnv.WebRootPath, "js", "joditInterop.js");
+        var jsVersion = File.Exists(jsPath) ? File.GetLastWriteTimeUtc(jsPath).Ticks : 0;
+        _joditModule = await JS.InvokeAsync<IJSObjectReference>("import", $"./js/joditInterop.js?v={jsVersion}");
+
+        // Jodit 3.x expects controls.font.list with format { cssValue: displayName }
+        var fontList = new Dictionary<string, string>
+        {
+            ["Arial, Helvetica, sans-serif"]          = "Arial",
+            ["Georgia, Palatino, serif"]               = "Georgia",
+            ["'Times New Roman', Times, serif"]        = "Times New Roman",
+            ["'Courier New', Courier, monospace"]      = "Courier New",
+            ["Calibri, sans-serif"]                   = "Calibri",
+            ["Cambria, serif"]                        = "Cambria",
+        };
+        foreach (var f in _fuentesActivas)
+            fontList[$"'{f.Nombre}', sans-serif"] = f.Nombre;
+
+        var config = new
+        {
+            language = "es",
+            minHeight = 900,
+            toolbarButtonSize = "small",
+            toolbarAdaptive = false,
+            showXPathInStatusbar = false,
+            showCharsCounter = false,
+            showWordsCounter = false,
+            askBeforePasteHTML = false,
+            askBeforePasteFromWord = false,
+            defaultActionOnPaste = "insert_as_html",
+            buttons = "undo,redo,|,bold,italic,underline,strikethrough,|,brush,|,paragraph,font,fontsize,lineHeight,|,ul,ol,|,left,center,right,justify,|,indent,outdent,|,table,|,copyformat,eraser",
+            controls = new { font = new { list = fontList } },
+            fontsize = new[] {"8","9","10","11","12","14","16","18","20","24","28","32","36","48"},
+            style = new { fontFamily = "Georgia, serif", fontSize = "13.5px", lineHeight = "2.05" }
+        };
+        await _joditModule.InvokeVoidAsync("init", "jodit-editor", config);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_joditModule != null)
+        {
+            try
+            {
+                await _joditModule.InvokeVoidAsync("destroy", "jodit-editor");
+                await _joditModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+            catch { }
+        }
+    }
+
+    private void ToggleEmpresa(int id, bool value)
+    {
+        if (value) _selectedEmpresas.Add(id);
+        else _selectedEmpresas.Remove(id);
+    }
+
+    private void ToggleAllEmpresas(ChangeEventArgs e)
+    {
+        if ((bool)e.Value!)
+            foreach (var emp in _todasEmpresas) _selectedEmpresas.Add(emp.Id);
+        else
+            _selectedEmpresas.Clear();
+    }
+
+    private async Task OnDocxSelected(InputFileChangeEventArgs e)
+    {
+        _docxFile = e.File;
+        await Task.CompletedTask;
+    }
+
+    private async Task OnMarcaImagenSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            _marcaDeAguaImagen = e.File;
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            _marcaDeAguaImagenBase64 = Convert.ToBase64String(ms.ToArray());
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al cargar la imagen: {ex.Message}", Severity.Error);
+            _marcaDeAguaImagen = null;
+            _marcaDeAguaImagenBase64 = "";
+        }
+    }
+
+    private async Task ExtractDocxText()
+    {
+        if (_docxFile == null) return;
+        _extracting = true;
+        try
+        {
+            var html = await WordSvc.ExtraerTextoWordAsync(_docxFile);
+            await _joditModule!.InvokeVoidAsync("setContent", "jodit-editor", html);
+            Snackbar.Add("Texto extraído correctamente.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _extracting = false;
+        }
+    }
+
+    private async Task InsertarPlaceholder(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val)) return;
+        await _joditModule!.InvokeVoidAsync("insertAtCursor", "jodit-editor", val);
+    }
+
+    private async Task HandleGuardar()
+    {
+        if (string.IsNullOrWhiteSpace(_nombre))
+        {
+            Snackbar.Add("Ingrese un nombre para la plantilla.", Severity.Warning);
+            return;
+        }
+        if (!_selectedEmpresas.Any())
+        {
+            Snackbar.Add("Seleccione al menos una empresa.", Severity.Warning);
+            return;
+        }
+        if (_tipoMarca == TipoMarcaAgua.Imagen && string.IsNullOrEmpty(_marcaDeAguaImagenBase64))
+        {
+            Snackbar.Add("Seleccione una imagen para la marca de agua.", Severity.Warning);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var html = await _joditModule!.InvokeAsync<string>("getContent", "jodit-editor");
+            var marcaValor = _tipoMarca == TipoMarcaAgua.Texto ? _marcaDeAguaTexto
+                           : _tipoMarca == TipoMarcaAgua.Imagen ? _marcaDeAguaImagenBase64
+                           : null;
+
+            if (_editingId > 0)
+            {
+                var plantilla = await PlantillaSvc.ObtenerPlantillaPorIdAsync(_editingId);
+                if (plantilla != null)
+                {
+                    plantilla.NombrePlantilla = _nombre;
+                    plantilla.HtmlContenido = html;
+                    plantilla.MarcaDeAgua = marcaValor;
+                    plantilla.TipoMarcaAgua = _tipoMarca;
+                    plantilla.OpacidadMarcaAgua = _opacidadMarca;
+                    plantilla.TamanoMarcaAgua = _tamanoMarca;
+                    plantilla.RotacionMarcaAgua = _rotacionMarca;
+                    plantilla.PosicionXMarcaAgua = _posXMarca;
+                    plantilla.PosicionYMarcaAgua = _posYMarca;
+                    var ok = await PlantillaSvc.ActualizarPlantillaAsync(plantilla);
+                    if (ok)
+                        Snackbar.Add("Plantilla actualizada.", Severity.Success);
+                    else
+                        Snackbar.Add("Error al actualizar la plantilla.", Severity.Error);
+                }
+            }
+            else
+            {
+                int guardadas = 0;
+                foreach (var empresaId in _selectedEmpresas)
+                {
+                    var ok = await PlantillaSvc.AgregarPlantillaAsync(new PlantillaHtml
+                    {
+                        EmpresaId = empresaId,
+                        NombrePlantilla = _nombre,
+                        HtmlContenido = html,
+                        MarcaDeAgua = marcaValor,
+                        TipoMarcaAgua = _tipoMarca,
+                        OpacidadMarcaAgua = _opacidadMarca,
+                        TamanoMarcaAgua = _tamanoMarca,
+                        RotacionMarcaAgua = _rotacionMarca,
+                        PosicionXMarcaAgua = _posXMarca,
+                        PosicionYMarcaAgua = _posYMarca
+                    });
+                    if (ok) guardadas++;
+                }
+                if (guardadas == _selectedEmpresas.Count)
+                    Snackbar.Add($"Plantilla creada para {guardadas} empresa(s).", Severity.Success);
+                else
+                    Snackbar.Add($"Solo se guardaron {guardadas} de {_selectedEmpresas.Count} empresa(s). Revise los logs.", Severity.Error);
+            }
+
+            _todasPlantillas = await PlantillaSvc.ObtenerTodasLasPlantillasAsync();
+            NuevaPlantilla();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task HandlePrevisualizar()
+    {
+        _previewLoading = true;
+        _showPreview = true;
+        try
+        {
+            var html = await _joditModule!.InvokeAsync<string>("getContent", "jodit-editor");
+            var marcaValor = _tipoMarca == TipoMarcaAgua.Texto ? _marcaDeAguaTexto
+                           : _tipoMarca == TipoMarcaAgua.Imagen ? _marcaDeAguaImagenBase64
+                           : null;
+            _previewContent = HtmlPdfService.WrapWithWatermarkHtml(
+                _tipoMarca, marcaValor, _opacidadMarca, html,
+                _posXMarca, _posYMarca, _tamanoMarca, _rotacionMarca);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            _showPreview = false;
+        }
+        finally
+        {
+            _previewLoading = false;
+        }
+    }
+
+    private async Task EditarPlantilla(PlantillaHtml p)
+    {
+        _editingId = p.Id;
+        _nombre = p.NombrePlantilla;
+        _selectedEmpresas = [p.EmpresaId];
+        _tipoMarca = p.TipoMarcaAgua;
+        _opacidadMarca = p.OpacidadMarcaAgua;
+        _tamanoMarca = p.TamanoMarcaAgua;
+        _rotacionMarca = p.RotacionMarcaAgua;
+        _posXMarca = p.PosicionXMarcaAgua;
+        _posYMarca = p.PosicionYMarcaAgua;
+        _marcaDeAguaTexto = p.MarcaDeAgua ?? "";
+        _marcaDeAguaImagenBase64 = p.TipoMarcaAgua == TipoMarcaAgua.Imagen ? (p.MarcaDeAgua ?? "") : "";
+        _marcaDeAguaImagen = null;
+        await _joditModule!.InvokeVoidAsync("setContent", "jodit-editor", p.HtmlContenido);
+    }
+
+    private async Task EliminarPlantilla(int id)
+    {
+        await PlantillaSvc.EliminarPlantillaAsync(id);
+        _todasPlantillas = await PlantillaSvc.ObtenerTodasLasPlantillasAsync();
+        if (_editingId == id) NuevaPlantilla();
+        Snackbar.Add("Plantilla eliminada.", Severity.Success);
+    }
+
+    private void NuevaPlantilla()
+    {
+        _editingId = 0;
+        _nombre = "";
+        _selectedEmpresas.Clear();
+        _tipoMarca = TipoMarcaAgua.Ninguna;
+        _marcaDeAguaTexto = "";
+        _marcaDeAguaImagen = null;
+        _marcaDeAguaImagenBase64 = "";
+        _opacidadMarca = 0.15;
+        _tamanoMarca = 80;
+        _rotacionMarca = -35;
+        _posXMarca = 50;
+        _posYMarca = 50;
+        _ = _joditModule?.InvokeVoidAsync("setContent", "jodit-editor", "");
+    }
+}

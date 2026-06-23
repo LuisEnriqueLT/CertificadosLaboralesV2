@@ -1,0 +1,949 @@
+@page "/administracion"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "SuperAdmin,Admin")]
+@inject EmpresaService EmpresaSvc
+@inject EmpleadoService EmpleadoSvc
+@inject FirmanteService FirmanteSvc
+@inject HistorialService HistorialSvc
+@inject PlaceholderService PlaceholderSvc
+@inject ExcelUploadService ExcelUploadSvc
+@inject ExcelService ExcelSvc
+@inject UserManager<ApplicationUser> UserMgr
+@inject RoleManager<IdentityRole> RoleMgr
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@using Microsoft.AspNetCore.Identity
+
+<PageTitle>Administración — Uiglobal</PageTitle>
+
+<div style="flex:1;width:100%;max-width:1560px;margin:0 auto;padding:28px 32px 40px;display:flex;flex-direction:column;gap:18px;">
+
+    <!-- Header -->
+    <div>
+        <div style="font-size:22px;font-weight:600;letter-spacing:-0.2px;color:#0f172a;">Administración</div>
+        <div style="font-size:13.5px;color:#64748b;margin-top:4px;">Gestione empresas, empleados, usuarios y datos del sistema</div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;align-items:stretch;padding:0 10px;overflow-x:auto;">
+        @foreach (var tab in _tabs)
+        {
+            var active = _activeTab == tab;
+            <button @onclick="@(() => SelectTab(tab))"
+                    style="height:48px;padding:0 20px;border:none;background:transparent;border-bottom:2.5px solid @(active ? "#F97316" : "transparent");border-top:2.5px solid transparent;color:@(active ? "#ea580c" : "#64748b");font-family:Roboto,sans-serif;font-size:13px;font-weight:@(active ? "600" : "500");letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;white-space:nowrap;"
+                    onmouseover="this.style.color='#ea580c';this.style.background='#fffaf5';"
+                    onmouseout="this.style.color='@(active ? "#ea580c" : "#64748b")';this.style.background='transparent';">
+                @tab
+            </button>
+        }
+    </div>
+
+    <!-- Content -->
+    @if (_activeTab == "Cargar Excel")
+    {
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);padding:48px 32px;">
+            <div style="max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:20px;">
+                <div style="text-align:center;">
+                    <div style="font-size:17px;font-weight:600;color:#0f172a;">Carga masiva de empleados</div>
+                    <div style="font-size:13.5px;color:#64748b;margin-top:5px;">Actualice las empresas y empleados del sistema desde un archivo de Excel</div>
+                </div>
+                <label style="border:1.5px dashed #cbd5e1;border-radius:8px;padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;background:#fafbfd;"
+                       onmouseover="this.style.borderColor='#F97316';this.style.background='#fffaf5';"
+                       onmouseout="this.style.borderColor='#cbd5e1';this.style.background='#fafbfd';">
+                    <span class="icon" style="font-size:42px;color:#94a3b8;">upload_file</span>
+                    <div style="font-size:14.5px;color:#334155;font-weight:500;margin-top:4px;">
+                        @(_excelFileName ?? "Arrastre el archivo de Excel aquí")
+                    </div>
+                    <div style="font-size:12.5px;color:#94a3b8;">Formato soportado: .xlsx · máximo 20 MB</div>
+                    <InputFile OnChange="OnExcelSelected" accept=".xlsx" style="display:none;" />
+                </label>
+                <div style="display:flex;gap:12px;justify-content:center;">
+                    <button @onclick="ProcesarExcel" disabled="@(_excelFile == null || _procesandoExcel)"
+                            style="height:40px;padding:0 20px;border:none;border-radius:4px;background:#F97316;color:#ffffff;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(249,115,22,0.35);opacity:@(_excelFile == null ? "0.5" : "1");">
+                        @(_procesandoExcel ? "Procesando…" : "Procesar Excel")
+                    </button>
+                </div>
+                @if (!string.IsNullOrEmpty(_excelResultado))
+                {
+                    <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;color:#475569;">
+                        <span class="icon" style="font-size:18px;color:#16a34a;">check_circle</span>
+                        @_excelResultado
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Table panel -->
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,0.05);display:flex;flex-direction:column;overflow:hidden;">
+
+            <!-- Toolbar -->
+            <div style="padding:16px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #e2e8f0;">
+                @if (_activeTab == "Empleado")
+                {
+                    <div style="position:relative;width:260px;">
+                        <select @onchange="OnFiltroEmpresaChange"
+                                style="appearance:none;-webkit-appearance:none;width:100%;height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 34px 0 12px;font-size:13.5px;font-family:Roboto,sans-serif;color:#1e293b;background:#ffffff;cursor:pointer;outline:none;"
+                                onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                                onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';">
+                            <option value="0">— Seleccione una empresa —</option>
+                            @foreach (var e in _empresas)
+                            {
+                                <option value="@e.Id" selected="@(e.Id == _filtroEmpresaId)">@e.Nombre</option>
+                            }
+                        </select>
+                        <span class="icon" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#64748b;pointer-events:none;font-size:18px;">expand_more</span>
+                    </div>
+                }
+                <div style="position:relative;width:320px;">
+                    <span class="icon" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:19px;pointer-events:none;">search</span>
+                    <input @bind="_search" @bind:event="oninput" type="text" placeholder="@SearchPlaceholder"
+                           style="width:100%;height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px 0 38px;font-size:13.5px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;"
+                           onfocus="this.style.borderColor='#F97316';this.style.boxShadow='0 0 0 3px rgba(249,115,22,0.12)';"
+                           onblur="this.style.borderColor='#cbd5e1';this.style.boxShadow='none';" />
+                </div>
+                <div style="flex:1;"></div>
+                @if (ShowAddBtn)
+                {
+                    <button @onclick="OpenAddModal"
+                            style="height:40px;padding:0 18px;border:none;border-radius:4px;background:#F97316;color:#ffffff;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(249,115,22,0.35);display:flex;align-items:center;gap:7px;"
+                            onmouseover="this.style.background='#ea580c';"
+                            onmouseout="this.style.background='#F97316';">
+                        <span class="icon" style="font-size:19px;">add</span>
+                        @AddLabel
+                    </button>
+                }
+            </div>
+
+            <!-- Table -->
+            @if (_loading)
+            {
+                <div style="padding:60px;display:flex;justify-content:center;">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                </div>
+            }
+            else if (_activeTab == "Empleado" && _filtroEmpresaId == 0)
+            {
+                <div style="padding:60px;text-align:center;color:#94a3b8;font-size:13.5px;">
+                    Selecciona una empresa para ver sus empleados.
+                </div>
+            }
+            else
+            {
+                <div style="overflow-x:auto;">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                @foreach (var col in Columns)
+                                {
+                                    <th>@col</th>
+                                }
+                                <th style="text-align:right;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in PagedRows)
+                            {
+                                <tr>
+                                    @for (int i = 0; i < row.Cells.Count; i++)
+                                    {
+                                        <td>@row.Cells[i]</td>
+                                    }
+                                    <td>
+                                        @foreach (var act in row.Actions)
+                                        {
+                                            <button @onclick="act.OnClick" title="@act.Title"
+                                                    style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:@act.Color;cursor:pointer;vertical-align:middle;"
+                                                    onmouseover="this.style.background='#f1f5f9';"
+                                                    onmouseout="this.style.background='transparent';">
+                                                <span class="icon" style="font-size:19px;">@act.Icon</span>
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (!PagedRows.Any())
+                            {
+                                <tr>
+                                    <td colspan="@(Columns.Length + 1)" style="text-align:center;color:#94a3b8;padding:40px;">
+                                        No hay registros que mostrar.
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div style="padding:10px 24px;display:flex;align-items:center;justify-content:flex-end;gap:24px;border-top:1px solid #e2e8f0;font-size:12.5px;color:#64748b;">
+                    <span>Filas por página: @PageSize</span>
+                    <span>@((_page * PageSize) + 1)–@Math.Min((_page + 1) * PageSize, TotalRows) de @TotalRows</span>
+                    <div style="display:flex;gap:4px;">
+                        <button @onclick="() => _page--" disabled="@(_page <= 0)"
+                                style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:@(_page <= 0 ? "#cbd5e1" : "#475569");cursor:@(_page <= 0 ? "default" : "pointer");">
+                            <span class="icon" style="font-size:20px;">chevron_left</span>
+                        </button>
+                        <button @onclick="() => _page++" disabled="@((_page + 1) * PageSize >= TotalRows)"
+                                style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:@((_page + 1) * PageSize >= TotalRows ? "#cbd5e1" : "#475569");cursor:@((_page + 1) * PageSize >= TotalRows ? "default" : "pointer");"
+                                onmouseover="this.style.background='#f1f5f9';"
+                                onmouseout="this.style.background='transparent';">
+                            <span class="icon" style="font-size:20px;">chevron_right</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Modal -->
+@if (_showModal)
+{
+    <div @onclick="CloseModal" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;">
+        <div @onclick:stopPropagation="true" style="background:#ffffff;border-radius:8px;width:580px;max-width:100%;box-shadow:0 20px 50px rgba(15,23,42,0.35);display:flex;flex-direction:column;max-height:90vh;">
+            <div style="padding:18px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:16px;font-weight:600;color:#0f172a;">@_modalTitle</span>
+                <button @onclick="CloseModal" style="width:32px;height:32px;border:none;background:transparent;border-radius:50%;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                    <span class="icon">close</span>
+                </button>
+            </div>
+            <div style="padding:24px;overflow:auto;">
+                @_modalContent
+            </div>
+            <div style="padding:16px 24px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:10px;">
+                <button @onclick="CloseModal" style="height:40px;padding:0 16px;border:none;border-radius:4px;background:transparent;color:#64748b;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;"
+                        onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='transparent';">
+                    Cancelar
+                </button>
+                <button @onclick="HandleModalSave" disabled="@_modalSaving"
+                        style="height:40px;padding:0 20px;border:none;border-radius:4px;background:#F97316;color:#ffffff;font-family:Roboto,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(249,115,22,0.35);"
+                        onmouseover="this.style.background='#ea580c';" onmouseout="this.style.background='#F97316';">
+                    @(_modalSaving ? "Guardando…" : "Guardar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ── Tabs ──────────────────────────────────────────────────────────
+    private static readonly string[] _tabs =
+        ["Empresa", "Empleado", "Usuario", "Representante legal", "Historial", "Placeholder", "Cargar Excel"];
+    private string _activeTab = "Empresa";
+    private bool _loading = false;
+    private string _search = "";
+    private int _page = 0;
+    private const int PageSize = 10;
+
+    // ── Data ─────────────────────────────────────────────────────────
+    private List<Empresa> _empresas = [];
+    private List<Empleado> _empleados = [];
+    private int _filtroEmpresaId = 0;
+    private List<DatoVariable> _empleadoColumnasDinamicas = [];
+    private List<Firmante> _firmantes = [];
+    private List<Historial> _historial = [];
+    private List<Placeholder> _placeholders = [];
+    private List<ApplicationUser> _users = [];
+    private Dictionary<string, string> _userRoles = [];
+    private Dictionary<int, string> _empresaNames = [];
+    private Dictionary<int, string> _empleadoNames = [];
+    private List<IdentityRole> _roles = [];
+
+    // ── Excel tab ─────────────────────────────────────────────────────
+    private IBrowserFile? _excelFile;
+    private string? _excelFileName;
+    private bool _procesandoExcel = false;
+    private string _excelResultado = "";
+
+    // ── Modal ─────────────────────────────────────────────────────────
+    private bool _showModal = false;
+    private bool _modalSaving = false;
+    private string _modalTitle = "";
+    private RenderFragment? _modalContent;
+    private Func<Task>? _modalSaveAction;
+
+    // ── Tab helpers ───────────────────────────────────────────────────
+    private bool ShowAddBtn => _activeTab is "Empresa" or "Empleado" or "Usuario" or "Representante legal" or "Placeholder";
+    private string AddLabel => _activeTab switch
+    {
+        "Empresa" => "Agregar empresa",
+        "Empleado" => "Agregar empleado",
+        "Usuario" => "Agregar usuario",
+        "Representante legal" => "Agregar representante",
+        "Placeholder" => "Agregar placeholder",
+        _ => ""
+    };
+    private string SearchPlaceholder => _activeTab switch
+    {
+        "Empresa" => "Buscar por nombre o NIT…",
+        "Empleado" => "Buscar por nombre o cédula…",
+        "Usuario" => "Buscar por correo…",
+        "Representante legal" => "Buscar por nombre…",
+        "Historial" => "Buscar por empresa o empleado…",
+        "Placeholder" => "Buscar placeholder…",
+        _ => "Buscar…"
+    };
+    private string[] Columns => _activeTab switch
+    {
+        "Empresa" => ["Nombre de la empresa", "NIT", "Domicilio", "Teléfono", "Correo"],
+        "Empleado" => [.. new[] { "Nombre completo", "Cédula", "Empresa", "Cargo", "Salario", "Fecha ingreso",
+                                  "Email", "Tipo contrato", "Ciudad de trabajo", "Tipo ID", "Estado laboral", "Tipo salario" },
+                       .. _empleadoColumnasDinamicas.Select(d => d.NombreCampo)],
+        "Usuario" => ["Correo electrónico", "Rol", "Estado"],
+        "Representante legal" => ["Nombre completo", "Cargo", "Sello"],
+        "Historial" => ["Fecha", "Empresa", "Empleado", "Hash"],
+        "Placeholder" => ["Placeholder", "Descripción", "Campo"],
+        _ => []
+    };
+
+    private record TableRow(List<string> Cells, List<RowAction> Actions);
+    private record RowAction(string Icon, string Title, string Color, EventCallback OnClick);
+
+    private List<TableRow> AllRows => _activeTab switch
+    {
+        "Empresa" => _empresas
+            .Where(e => string.IsNullOrEmpty(_search)
+                || (e.Nombre ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || (e.Nit ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(e => new TableRow(
+                [e.Nombre ?? "—", e.Nit ?? "—", e.Domicilio ?? "—", e.Telefono?.ToString() ?? "—", e.Email ?? "—"],
+                [
+                    new("edit", "Editar", "#475569", EventCallback.Factory.Create(this, () => OpenEditEmpresa(e))),
+                    new("delete", "Eliminar", "#dc2626", EventCallback.Factory.Create(this, () => DeleteEmpresa(e.Id)))
+                ])).ToList(),
+        "Empleado" => _empleados
+            .Where(e => string.IsNullOrEmpty(_search)
+                || (e.NombreCompleto ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || (e.Cedula ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(e =>
+            {
+                var datos = DatosVariablesHelper.Parse(e.DatosVariables);
+                var celdasFijas = new List<string>
+                {
+                    e.NombreCompleto ?? "—", e.Cedula ?? "—",
+                    _empresaNames.GetValueOrDefault(e.EmpresaId, "—"),
+                    e.Cargo ?? "—", e.SalarioMensual ?? "—", e.FechaIngreso.ToString("yyyy-MM-dd"),
+                    e.Email ?? "—", e.TipoContrato ?? "—", e.CiudadDeTrabajo ?? "—", e.TipoId ?? "—",
+                    e.EstadoLaboral ? "Activo" : "Inactivo", e.tipoSalario ?? "—"
+                };
+                var celdasDinamicas = _empleadoColumnasDinamicas
+                    .Select(d => datos.TryGetValue(d.Clave, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "—");
+                return new TableRow(
+                    [.. celdasFijas, .. celdasDinamicas],
+                    [
+                        new("edit", "Editar", "#475569", EventCallback.Factory.Create(this, () => OpenEditEmpleado(e))),
+                        new("delete", "Eliminar", "#dc2626", EventCallback.Factory.Create(this, () => DeleteEmpleado(e.Id)))
+                    ]);
+            }).ToList(),
+        "Usuario" => _users
+            .Where(u => string.IsNullOrEmpty(_search)
+                || (u.Email ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(u => new TableRow(
+                [u.Email ?? "—", _userRoles.GetValueOrDefault(u.Id, "—"),
+                 u.LockoutEnd.HasValue && u.LockoutEnd > DateTimeOffset.UtcNow ? "Bloqueado" : "Activo"],
+                [
+                    new("edit", "Editar", "#475569", EventCallback.Factory.Create(this, () => OpenEditUsuario(u))),
+                    new("delete", "Eliminar", "#dc2626", EventCallback.Factory.Create(this, () => DeleteUsuario(u.Id)))
+                ])).ToList(),
+        "Representante legal" => _firmantes
+            .Where(f => string.IsNullOrEmpty(_search)
+                || f.NombreCompleto.Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(f => new TableRow(
+                [f.NombreCompleto, f.Cargo ?? "—", f.Firma != null && f.Firma.Length > 0 ? "Cargado" : "Sin sello"],
+                [
+                    new("edit", "Editar", "#475569", EventCallback.Factory.Create(this, () => OpenEditFirmante(f))),
+                    new("delete", "Eliminar", "#dc2626", EventCallback.Factory.Create(this, () => DeleteFirmante(f.Id)))
+                ])).ToList(),
+        "Historial" => _historial
+            .Where(h => string.IsNullOrEmpty(_search)
+                || _empresaNames.GetValueOrDefault(h.EmpresaId, "").Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || _empleadoNames.GetValueOrDefault(h.CreadoParaId, "").Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(h => new TableRow(
+                [h.FechaCreacion.ToLocalTime().ToString("dd-MM-yyyy HH:mm"),
+                 _empresaNames.GetValueOrDefault(h.EmpresaId, "—"),
+                 _empleadoNames.GetValueOrDefault(h.CreadoParaId, "—"),
+                 h.Hash.Length > 16 ? h.Hash[..16] + "…" : h.Hash],
+                [new("download", "Descargar", "#475569", EventCallback.Factory.Create(this, () => DescargarHistorial(h)))]
+            )).ToList(),
+        "Placeholder" => _placeholders
+            .Where(p => string.IsNullOrEmpty(_search)
+                || p.PlaceholderTexto.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || p.Texto.Contains(_search, StringComparison.OrdinalIgnoreCase))
+            .Select(p => new TableRow(
+                [$"{{{{{p.PlaceholderTexto}}}}}", p.Texto,
+                 p.DatoVariable?.NombreCampo
+                 ?? (p.CampoFijo != null ? CamposFijosEmpleado.Campos.GetValueOrDefault(p.CampoFijo) : null)
+                 ?? "—"],
+                [
+                    new("edit", "Editar", "#475569", EventCallback.Factory.Create(this, () => OpenEditPlaceholder(p))),
+                    new("delete", "Eliminar", "#dc2626", EventCallback.Factory.Create(this, () => DeletePlaceholder(p.Id)))
+                ])).ToList(),
+        _ => []
+    };
+
+    private List<TableRow> PagedRows => AllRows.Skip(_page * PageSize).Take(PageSize).ToList();
+    private int TotalRows => AllRows.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatosTab();
+        _roles = RoleMgr.Roles.ToList();
+    }
+
+    private async Task SelectTab(string tab)
+    {
+        _activeTab = tab;
+        _search = "";
+        _page = 0;
+        _filtroEmpresaId = 0;
+        await CargarDatosTab();
+    }
+
+    private async Task CargarDatosTab()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            switch (_activeTab)
+            {
+                case "Empresa":
+                    _empresas = await EmpresaSvc.ObtenerEmpresasAsync();
+                    break;
+                case "Empleado":
+                    _empresas = await EmpresaSvc.ObtenerEmpresasAsync();
+                    _empresaNames = _empresas.ToDictionary(e => e.Id, e => e.Nombre ?? "");
+                    if (_filtroEmpresaId > 0)
+                    {
+                        _empleados = await EmpleadoSvc.ObtenerEmpleadosPorEmpresaIdAsync(_filtroEmpresaId);
+                        _empleadoColumnasDinamicas = (await EmpleadoSvc.ObtenerTodosDatosVariablesAsync())
+                            .OrderBy(d => d.NombreCampo)
+                            .ToList();
+                    }
+                    else
+                    {
+                        _empleados = [];
+                        _empleadoColumnasDinamicas = [];
+                    }
+                    break;
+                case "Usuario":
+                    _users = UserMgr.Users.ToList();
+                    _userRoles = [];
+                    foreach (var u in _users)
+                    {
+                        var roles = await UserMgr.GetRolesAsync(u);
+                        _userRoles[u.Id] = roles.FirstOrDefault() ?? "—";
+                    }
+                    break;
+                case "Representante legal":
+                    _firmantes = await FirmanteSvc.ObtenerTodosLosFirmantesAsync();
+                    break;
+                case "Historial":
+                    _historial = await HistorialSvc.ObtenerTodoHistorialAsync();
+                    _empresaNames = (await EmpresaSvc.ObtenerEmpresasAsync()).ToDictionary(e => e.Id, e => e.Nombre ?? "");
+                    _empleadoNames = (await EmpleadoSvc.ObtenerTodosEmpleadosAsync()).ToDictionary(e => e.Id, e => e.NombreCompleto ?? "");
+                    break;
+                case "Placeholder":
+                    _placeholders = await PlaceholderSvc.ObtenerTodosLosPlaceholdersAsync();
+                    break;
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RecargarDatos()
+    {
+        await CargarDatosTab();
+    }
+
+    private async Task OnFiltroEmpresaChange(ChangeEventArgs e)
+    {
+        _filtroEmpresaId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        _page = 0;
+        await CargarDatosTab();
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task HandleModalSave()
+    {
+        if (_modalSaveAction == null) return;
+        _modalSaving = true;
+        try { await _modalSaveAction(); }
+        finally { _modalSaving = false; }
+    }
+
+    // ── Empresa CRUD ──────────────────────────────────────────────────
+    private Empresa _empresaForm = new();
+    private async Task OpenAddModal()
+    {
+        switch (_activeTab)
+        {
+            case "Empresa": OpenAddEmpresa(); break;
+            case "Empleado": OpenAddEmpleado(); break;
+            case "Usuario": OpenAddUsuario(); break;
+            case "Representante legal": OpenAddFirmante(); break;
+            case "Placeholder": await OpenAddPlaceholder(); break;
+        }
+    }
+
+    private void OpenAddEmpresa()
+    {
+        _empresaForm = new();
+        _modalTitle = "Agregar empresa";
+        _modalSaveAction = SaveEmpresa;
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre de la empresa</label>
+                <input @bind="_empresaForm.Nombre" placeholder="Razón social" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">NIT</label>
+                <input @bind="_empresaForm.Nit" placeholder="900000000-0" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Teléfono</label>
+                <input type="number" @bind="_empresaForm.Telefono" placeholder="0000000000" style="@InputStyle" />
+            </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Domicilio</label>
+                <input @bind="_empresaForm.Domicilio" placeholder="Dirección y ciudad" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
+                <input @bind="_empresaForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
+            </div>
+        </div>;
+        _showModal = true;
+    }
+
+    private void OpenEditEmpresa(Empresa e)
+    {
+        _empresaForm = new() { Id = e.Id, Nombre = e.Nombre, Nit = e.Nit, Domicilio = e.Domicilio, Telefono = e.Telefono, Email = e.Email, RepresentanteLegalId = e.RepresentanteLegalId };
+        _modalTitle = "Editar empresa";
+        _modalSaveAction = SaveEmpresa;
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre de la empresa</label>
+                <input @bind="_empresaForm.Nombre" placeholder="Razón social" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">NIT</label>
+                <input @bind="_empresaForm.Nit" placeholder="900000000-0" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Teléfono</label>
+                <input type="number" @bind="_empresaForm.Telefono" placeholder="0000000000" style="@InputStyle" />
+            </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Domicilio</label>
+                <input @bind="_empresaForm.Domicilio" placeholder="Dirección y ciudad" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
+                <input @bind="_empresaForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
+            </div>
+        </div>;
+        _showModal = true;
+    }
+
+    private async Task SaveEmpresa()
+    {
+        if (_empresaForm.Id == 0)
+            await EmpresaSvc.AgregarEmpresaAsync(_empresaForm);
+        else
+            await EmpresaSvc.ActualizarEmpresaAsync(_empresaForm);
+        _empresas = await EmpresaSvc.ObtenerEmpresasAsync();
+        Snackbar.Add("Empresa guardada.", Severity.Success);
+        _showModal = false;
+    }
+
+    private async Task DeleteEmpresa(int id)
+    {
+        await EmpresaSvc.EliminarEmpresaAsync(id);
+        _empresas = await EmpresaSvc.ObtenerEmpresasAsync();
+        Snackbar.Add("Empresa eliminada.", Severity.Success);
+    }
+
+    // ── Empleado CRUD ─────────────────────────────────────────────────
+    private Empleado _empleadoForm = new();
+
+    private void OpenAddEmpleado()
+    {
+        _empleadoForm = new();
+        _modalTitle = "Agregar empleado";
+        _modalSaveAction = SaveEmpleado;
+        SetEmpleadoModalContent();
+        _showModal = true;
+    }
+
+    private void OpenEditEmpleado(Empleado e)
+    {
+        _empleadoForm = new() { Id = e.Id, NombreCompleto = e.NombreCompleto, Email = e.Email, Cedula = e.Cedula, EmpresaId = e.EmpresaId, Cargo = e.Cargo, SalarioMensual = e.SalarioMensual, FechaIngreso = e.FechaIngreso };
+        _modalTitle = "Editar empleado";
+        _modalSaveAction = SaveEmpleado;
+        SetEmpleadoModalContent();
+        _showModal = true;
+    }
+
+    private void SetEmpleadoModalContent()
+    {
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre completo</label>
+                <input @bind="_empleadoForm.NombreCompleto" placeholder="Apellidos y nombres" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Cédula</label>
+                <input @bind="_empleadoForm.Cedula" placeholder="0.000.000.000" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
+                <input @bind="_empleadoForm.Email" type="email" placeholder="correo@empresa.com" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Cargo</label>
+                <input @bind="_empleadoForm.Cargo" placeholder="Cargo actual" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Salario mensual</label>
+                <input @bind="_empleadoForm.SalarioMensual" placeholder="0" style="@InputStyle" />
+            </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Empresa</label>
+                <select @bind="_empleadoForm.EmpresaId" style="@SelectStyle">
+                    <option value="0">— Seleccione —</option>
+                    @foreach (var emp in _empresas)
+                    {
+                        <option value="@emp.Id">@emp.Nombre</option>
+                    }
+                </select>
+            </div>
+        </div>;
+    }
+
+    private async Task SaveEmpleado()
+    {
+        if (_empleadoForm.Id == 0)
+            await EmpleadoSvc.AgregarEmpleadoAsync(_empleadoForm);
+        else
+            await EmpleadoSvc.ActualizarEmpleadoAsync(_empleadoForm);
+        _empleados = await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
+        Snackbar.Add("Empleado guardado.", Severity.Success);
+        _showModal = false;
+    }
+
+    private async Task DeleteEmpleado(int id)
+    {
+        await EmpleadoSvc.EliminarEmpleadoAsync(id);
+        _empleados = await EmpleadoSvc.ObtenerTodosEmpleadosAsync();
+        Snackbar.Add("Empleado eliminado.", Severity.Success);
+    }
+
+    // ── Firmante CRUD ─────────────────────────────────────────────────
+    private Firmante _firmanteForm = new();
+
+    private void OpenAddFirmante()
+    {
+        _firmanteForm = new();
+        _modalTitle = "Agregar representante legal";
+        _modalSaveAction = SaveFirmante;
+        SetFirmanteModalContent();
+        _showModal = true;
+    }
+
+    private void OpenEditFirmante(Firmante f)
+    {
+        _firmanteForm = new() { Id = f.Id, NombreCompleto = f.NombreCompleto, Cargo = f.Cargo };
+        _modalTitle = "Editar representante legal";
+        _modalSaveAction = SaveFirmante;
+        SetFirmanteModalContent();
+        _showModal = true;
+    }
+
+    private void SetFirmanteModalContent()
+    {
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Nombre completo</label>
+                <input @bind="_firmanteForm.NombreCompleto" placeholder="Apellidos y nombres" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Cargo</label>
+                <input @bind="_firmanteForm.Cargo" placeholder="Ej. Gerente General" style="@InputStyle" />
+            </div>
+        </div>;
+    }
+
+    private async Task SaveFirmante()
+    {
+        if (_firmanteForm.Id == 0)
+            await FirmanteSvc.AgregarFirmanteAsync(_firmanteForm);
+        else
+            await FirmanteSvc.ActualizarFirmanteAsync(_firmanteForm);
+        _firmantes = await FirmanteSvc.ObtenerTodosLosFirmantesAsync();
+        Snackbar.Add("Representante guardado.", Severity.Success);
+        _showModal = false;
+    }
+
+    private async Task DeleteFirmante(int id)
+    {
+        await FirmanteSvc.EliminarFirmanteAsync(id);
+        _firmantes = await FirmanteSvc.ObtenerTodosLosFirmantesAsync();
+        Snackbar.Add("Representante eliminado.", Severity.Success);
+    }
+
+    // ── Usuario CRUD ──────────────────────────────────────────────────
+    private string _usuarioEmail = "", _usuarioPassword = "", _usuarioRol = "Admin";
+    private ApplicationUser? _usuarioEditing;
+
+    private void OpenAddUsuario()
+    {
+        _usuarioEmail = "";
+        _usuarioPassword = "";
+        _usuarioRol = "Admin";
+        _usuarioEditing = null;
+        _modalTitle = "Agregar usuario";
+        _modalSaveAction = SaveUsuario;
+        SetUsuarioModalContent();
+        _showModal = true;
+    }
+
+    private async Task OpenEditUsuario(ApplicationUser u)
+    {
+        _usuarioEmail = u.Email ?? "";
+        _usuarioPassword = "";
+        var roles = await UserMgr.GetRolesAsync(u);
+        _usuarioRol = roles.FirstOrDefault() ?? "Admin";
+        _usuarioEditing = u;
+        _modalTitle = "Editar usuario";
+        _modalSaveAction = SaveUsuario;
+        SetUsuarioModalContent();
+        _showModal = true;
+    }
+
+    private void SetUsuarioModalContent()
+    {
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Correo electrónico</label>
+                <input @bind="_usuarioEmail" type="email" placeholder="correo@dominio.com" style="@InputStyle" readonly="@(_usuarioEditing != null)" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Rol</label>
+                <select @bind="_usuarioRol" style="@SelectStyle">
+                    @foreach (var r in _roles)
+                    {
+                        <option value="@r.Name">@r.Name</option>
+                    }
+                </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">@(_usuarioEditing != null ? "Nueva contraseña (opcional)" : "Contraseña temporal")</label>
+                <input @bind="_usuarioPassword" type="password" placeholder="Mínimo 6 caracteres" style="@InputStyle" />
+            </div>
+        </div>;
+    }
+
+    private async Task SaveUsuario()
+    {
+        if (_usuarioEditing == null)
+        {
+            if (string.IsNullOrWhiteSpace(_usuarioEmail) || string.IsNullOrWhiteSpace(_usuarioPassword))
+            {
+                Snackbar.Add("Complete todos los campos.", Severity.Warning);
+                return;
+            }
+            var pais = new Pais { Id = 1 }; // default
+            var user = new ApplicationUser { UserName = _usuarioEmail, Email = _usuarioEmail, PaisId = 1 };
+            var result = await UserMgr.CreateAsync(user, _usuarioPassword);
+            if (!result.Succeeded)
+            {
+                Snackbar.Add(string.Join(", ", result.Errors.Select(e => e.Description)), Severity.Error);
+                return;
+            }
+            await UserMgr.AddToRoleAsync(user, _usuarioRol);
+        }
+        else
+        {
+            var currentRoles = await UserMgr.GetRolesAsync(_usuarioEditing);
+            await UserMgr.RemoveFromRolesAsync(_usuarioEditing, currentRoles);
+            await UserMgr.AddToRoleAsync(_usuarioEditing, _usuarioRol);
+            if (!string.IsNullOrWhiteSpace(_usuarioPassword))
+            {
+                var token = await UserMgr.GeneratePasswordResetTokenAsync(_usuarioEditing);
+                await UserMgr.ResetPasswordAsync(_usuarioEditing, token, _usuarioPassword);
+            }
+        }
+        _users = UserMgr.Users.ToList();
+        Snackbar.Add("Usuario guardado.", Severity.Success);
+        _showModal = false;
+    }
+
+    private async Task DeleteUsuario(string id)
+    {
+        var user = await UserMgr.FindByIdAsync(id);
+        if (user != null) await UserMgr.DeleteAsync(user);
+        _users = UserMgr.Users.ToList();
+        Snackbar.Add("Usuario eliminado.", Severity.Success);
+    }
+
+    // ── Placeholder CRUD ──────────────────────────────────────────────
+    private Placeholder _placeholderForm = new();
+    private List<DatoVariable> _datosVariables = [];
+    private string _placeholderFieldSelection = "";
+
+    private async Task OpenAddPlaceholder()
+    {
+        _placeholderForm = new();
+        _placeholderFieldSelection = "";
+        _datosVariables = await EmpleadoSvc.ObtenerTodosDatosVariablesAsync();
+        _modalTitle = "Agregar placeholder";
+        _modalSaveAction = SavePlaceholder;
+        SetPlaceholderModalContent();
+        _showModal = true;
+    }
+
+    private async Task OpenEditPlaceholder(Placeholder p)
+    {
+        _placeholderForm = new() { Id = p.Id, PlaceholderTexto = p.PlaceholderTexto, Texto = p.Texto, DatoVariableId = p.DatoVariableId, CampoFijo = p.CampoFijo };
+        _placeholderFieldSelection = p.DatoVariableId.HasValue ? $"D:{p.DatoVariableId}" : (p.CampoFijo != null ? $"F:{p.CampoFijo}" : "");
+        _datosVariables = await EmpleadoSvc.ObtenerTodosDatosVariablesAsync();
+        _modalTitle = "Editar placeholder";
+        _modalSaveAction = SavePlaceholder;
+        SetPlaceholderModalContent();
+        _showModal = true;
+    }
+
+    private void OnPlaceholderFieldChange(ChangeEventArgs e)
+    {
+        _placeholderFieldSelection = e.Value?.ToString() ?? "";
+        if (_placeholderFieldSelection.StartsWith("F:"))
+        {
+            _placeholderForm.CampoFijo = _placeholderFieldSelection[2..];
+            _placeholderForm.DatoVariableId = null;
+        }
+        else if (_placeholderFieldSelection.StartsWith("D:"))
+        {
+            _placeholderForm.CampoFijo = null;
+            _placeholderForm.DatoVariableId = int.TryParse(_placeholderFieldSelection[2..], out var id) ? id : null;
+        }
+        else
+        {
+            _placeholderForm.CampoFijo = null;
+            _placeholderForm.DatoVariableId = null;
+        }
+    }
+
+    private void SetPlaceholderModalContent()
+    {
+        _modalContent = @<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Placeholder</label>
+                <input @bind="_placeholderForm.PlaceholderTexto" placeholder="Ej. NombreEmpleado" style="@InputStyle" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Campo de datos</label>
+                <select value="@_placeholderFieldSelection" @onchange="OnPlaceholderFieldChange" style="@SelectStyle">
+                    <option value="">— Seleccione —</option>
+                    <optgroup label="Campos fijos">
+                        @foreach (var kv in CamposFijosEmpleado.Campos)
+                        {
+                            <option value="@($"F:{kv.Key}")">@kv.Value</option>
+                        }
+                    </optgroup>
+                    <optgroup label="Campos dinámicos">
+                        @foreach (var d in _datosVariables)
+                        {
+                            <option value="@($"D:{d.Id}")">@d.NombreCampo</option>
+                        }
+                    </optgroup>
+                </select>
+            </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12.5px;font-weight:500;color:#475569;">Descripción</label>
+                <input @bind="_placeholderForm.Texto" placeholder="Qué dato reemplaza" style="@InputStyle" />
+            </div>
+        </div>;
+    }
+
+    private async Task SavePlaceholder()
+    {
+        if (_placeholderForm.DatoVariableId == null && string.IsNullOrWhiteSpace(_placeholderForm.CampoFijo))
+        {
+            Snackbar.Add("Selecciona un campo.", Severity.Warning);
+            return;
+        }
+
+        if (_placeholderForm.Id == 0)
+            await PlaceholderSvc.AgregarPlaceholderAsync(_placeholderForm);
+        else
+            await PlaceholderSvc.ActualizarPlaceholderAsync(_placeholderForm);
+        _placeholders = await PlaceholderSvc.ObtenerTodosLosPlaceholdersAsync();
+        Snackbar.Add("Placeholder guardado.", Severity.Success);
+        _showModal = false;
+    }
+
+    private async Task DeletePlaceholder(int id)
+    {
+        await PlaceholderSvc.EliminarPlaceholderAsync(id);
+        _placeholders = await PlaceholderSvc.ObtenerTodosLosPlaceholdersAsync();
+        Snackbar.Add("Placeholder eliminado.", Severity.Success);
+    }
+
+    // ── Historial ────────────────────────────────────────────────────
+    private async Task DescargarHistorial(Historial h)
+    {
+        await JS.InvokeVoidAsync("downloadFile",
+            $"historial_{h.Id}_{h.FechaCreacion:yyyyMMdd}.pdf",
+            "application/pdf", h.Contenido);
+    }
+
+    // ── Excel Import ─────────────────────────────────────────────────
+    private void OnExcelSelected(InputFileChangeEventArgs e)
+    {
+        _excelFile = e.File;
+        _excelFileName = e.File.Name;
+        _excelResultado = "";
+    }
+
+    private async Task ProcesarExcel()
+    {
+        if (_excelFile == null) return;
+        _procesandoExcel = true;
+        _excelResultado = "";
+        try
+        {
+            await ExcelUploadSvc.GuardarExcelAsync(_excelFile, sobreEscribir: true);
+            var firmantes = await ExcelSvc.ActualizarFirmantesExcel();
+            var empresas = await ExcelSvc.ActualizarEmpresasExcel();
+            var empleados = await ExcelSvc.ActualizarEmpleadosExcel();
+            int nuevasE = empresas[0].Count, modE = empresas[1].Count;
+            int nuevosEmp = empleados[0].Count, modEmp = empleados[1].Count;
+            int nuevasF = firmantes[0].Count, modF = firmantes[1].Count;
+            _excelResultado = $"Empresas: {nuevasE} nuevas, {modE} actualizadas. " +
+                              $"Empleados: {nuevosEmp} nuevos, {modEmp} actualizados. " +
+                              $"Firmantes: {nuevasF} nuevos, {modF} actualizados.";
+            Snackbar.Add("Excel procesado correctamente.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _excelResultado = $"Error: {ex.Message}";
+            Snackbar.Add("Error al procesar el Excel.", Severity.Error);
+        }
+        finally
+        {
+            _procesandoExcel = false;
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+    private static string InputStyle =>
+        "height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:14px;font-family:Roboto,sans-serif;color:#1e293b;outline:none;width:100%;";
+    private static string SelectStyle =>
+        "appearance:none;-webkit-appearance:none;height:40px;border:1px solid #cbd5e1;border-radius:4px;padding:0 12px;font-size:14px;font-family:Roboto,sans-serif;color:#1e293b;background:#ffffff;outline:none;width:100%;cursor:pointer;";
+}
