@@ -15,3 +15,10 @@ uploads/
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# Production config (may contain secrets)
+appsettings.Production.json
+
+# Packaged builds
+*.zip
+publish/
